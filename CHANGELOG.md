@@ -21,6 +21,9 @@ The mesh kernel, and the first Meshgrove panel.
   or adding to those below; a new layer starts empty and goes where you mark.
 - **Stamp, outline, soft seams**: a texture once where you click; wrapped along the part's
   outline; box and cylinder blend at their edges.
+- **For an AI**: tools to list the textures (with a numbered picture), to look at a model, to
+  see a picture of a texture on it, and to make the file, which then waits in Meshgrove's
+  review. (Making files needs Meshgrove 0.9.0's background jobs for tools.)
 - **Textures that ship**: twelve nature and material maps from Poly Haven (bark, wood, leather,
   rock, cobblestones, brick, slate, corrugated iron, gravel, rust, metal plate) and 32 patterns
   from Hero Patterns, in gallery groups, each with its credit.

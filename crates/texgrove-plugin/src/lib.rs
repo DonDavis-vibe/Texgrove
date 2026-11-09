@@ -3,6 +3,8 @@
 //! - Right-click models in the gallery → "Apply texture …" opens the panel with them (their
 //!   library ids; Texgrove may read exactly those files).
 //! - The panel shows a coarse preview, made in a background job and kept in `/data/preview`.
+//! - Tools let an AI list the textures, look at a model, see a picture of a texture on it and
+//!   make the file (in a background job; it waits in the review).
 //! - "Apply texture" makes the files one after another in background jobs and puts each beside
 //!   its model (`next_to`), tagged and with the settings in its note: one step in the history
 //!   per library.
@@ -13,10 +15,11 @@ mod panel;
 mod recipe;
 mod textures;
 mod thumbs;
+mod tools;
 mod work;
 
 use meshgrove_plugin_api::guest::{self, Guest, PluginError, ToolOutput};
-use meshgrove_plugin_api::{API_VERSION, FileType, Manifest, PanelDef, Permission, Receive, ToolDef};
+use meshgrove_plugin_api::{API_VERSION, FileType, Manifest, PanelDef, Permission, Receive};
 
 struct Texgrove;
 
@@ -51,7 +54,7 @@ impl Guest for Texgrove {
             authors: vec!["Davis (German Redneck Engineering)".into()],
             license: Some("MIT OR Apache-2.0".into()),
             homepage: Some("https://redneck-design.de/".into()),
-            permissions: vec![Permission::Bundles, Permission::LibraryRead],
+            permissions: vec![Permission::AiTools, Permission::Bundles, Permission::LibraryRead],
             panels: vec![PanelDef { id: "texture".into(), title: "Texgrove".into() }],
             file_types,
             memory_mb: Some(3584),
@@ -59,11 +62,12 @@ impl Guest for Texgrove {
     }
 
     fn list_tools() -> String {
-        guest::json(&Vec::<ToolDef>::new())
+        guest::json(&tools::list())
     }
 
-    fn call_tool(name: String, _args: String) -> Result<ToolOutput, PluginError> {
-        Err(PluginError::Invalid(format!("no tool {name:?}")))
+    fn call_tool(name: String, args: String) -> Result<ToolOutput, PluginError> {
+        lang::set(&guest::info().language);
+        tools::call(&name, &args)
     }
 
     fn run_job(kind: String, params: String) -> Result<String, PluginError> {
@@ -71,6 +75,8 @@ impl Guest for Texgrove {
         match kind.as_str() {
             "preview" => Ok(guest::json(&work::preview(&guest::parse(&params)?)?)),
             "export" => Ok(guest::json(&work::export(&guest::parse(&params)?)?)),
+            // Started by the AI's `apply` tool: the file and how it goes into the library.
+            "apply" => Ok(guest::json(&tools::run_apply(&guest::parse(&params)?)?)),
             _ => Err(PluginError::Invalid(format!("no job {kind:?}"))),
         }
     }

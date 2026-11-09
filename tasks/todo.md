@@ -142,6 +142,16 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
 - [ ] Diagnose-Anzeige (offene Kanten, Teile) im Panel
 
 ## M9 KI-Werkzeuge
+- [x] Kern: `raster` (Bild ohne Grafikkarte: z-Puffer, Licht von links oben, Markiertes orange)
+- [x] Plugin-Werkzeuge: `textures` (Liste + nummerierter Kontaktbogen), `inspect` (Größe,
+      geschlossen, Teile, Innen-Anteil, Hinweise zu Kachel/Tiefe), `preview` (Bild vorher/nachher,
+      Anteil ohne Textur, Warnungen), `apply` (Bündel mit Hintergrundjob `apply`, dessen Ergebnis das
+      endgültige Bündel trägt); Recht `ai_tools` im Manifest
+- [x] Mit `meshgrove-plugin-run` geprüft: `tools`, `inspect`, `preview` (0,3 s); CLI `--picture`
+      zeigt dasselbe Bild (`out/ki-vorschau.png`)
+- [ ] Host H (Jobs aus Werkzeugen): Auftrag an die Host-Session (09.11.), danach `apply` Ende zu
+      Ende prüfen (plugin-run `call apply`, MCP, Chat)
+
 ## M10 Fertigstellen
 - [ ] Grafiken (Krea 2 Turbo über ComfyUI), README, CHANGELOG, CI/Release
 - [ ] **Test unter Linux ganz normal lokal** (Davis, 09.11.)

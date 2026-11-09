@@ -112,6 +112,9 @@ struct Apply {
     /// Let the model's sharp edges move with the texture.
     #[arg(long)]
     free_edges: bool,
+    /// Also write a picture (.png) of the model before and after; what got no texture is orange.
+    #[arg(long)]
+    picture: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -224,6 +227,16 @@ fn run(command: Command) -> Result<(), String> {
             println!("  refined to       {} triangles, {:.2} mm edges", textured.refined_triangles, textured.edge);
             print_report(&diagnostics::diagnose(&textured.mesh), 0);
             println!("  textured in      {:.2} s", took.as_secs_f64());
+            if let Some(path) = &apply.picture {
+                use texgrove_core::raster::{Camera, Picture, render};
+                let camera = Camera::default();
+                let both = Picture::beside(&[
+                    render(&source, 512, &camera, None),
+                    render(&textured.mesh, 512, &camera, Some(&textured.left_out)),
+                ]);
+                std::fs::write(path, both.to_png()).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+                println!("{}: before and after", path.display());
+            }
             save(&apply.output, &textured.mesh)
         }
         Command::Pattern { name: None, .. } => {

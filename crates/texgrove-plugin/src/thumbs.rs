@@ -26,12 +26,89 @@ pub fn of(texture: &str) -> Option<String> {
         Some(pattern) => (pattern.render(128), 2.0),
         None => (crate::textures::map(texture).ok()?, 1.0),
     };
-    let picture = render(&map, tiles);
+    let (rows, pixels) = pixels(&map, tiles);
+    let picture = base64::engine::general_purpose::STANDARD.encode(png(SIZE, rows, &pixels));
     CACHE.with(|cache| cache.borrow_mut().insert(texture.to_owned(), picture.clone()));
     Some(picture)
 }
 
-fn render(map: &Heightmap, tiles: f32) -> String {
+/// A texture's little picture as greys, row by row: how many rows, and the pixels.
+fn pixels_of(texture: &str) -> Option<(u32, Vec<u8>)> {
+    let (map, tiles) = match Pattern::from_id(texture) {
+        Some(pattern) => (pattern.render(128), 2.0),
+        None => (crate::textures::map(texture).ok()?, 1.0),
+    };
+    Some(pixels(&map, tiles))
+}
+
+fn png(width: u32, height: u32, grey: &[u8]) -> Vec<u8> {
+    let mut png = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png, width, height);
+    encoder.set_color(png::ColorType::Grayscale);
+    encoder.set_depth(png::BitDepth::Eight);
+    if let Ok(mut writer) = encoder.write_header() {
+        let _ = writer.write_image_data(grey);
+    }
+    png
+}
+
+/// The digits 0 to 9, three pixels wide and five tall, a row per three bits.
+const DIGITS: [u16; 10] = [
+    0b111_101_101_101_111,
+    0b010_110_010_010_111,
+    0b111_001_111_100_111,
+    0b111_001_111_001_111,
+    0b101_101_111_001_001,
+    0b111_100_111_001_111,
+    0b111_100_111_101_111,
+    0b111_001_001_001_001,
+    0b111_101_111_101_111,
+    0b111_101_111_001_111,
+];
+
+/// The textures' little pictures on one sheet, numbered from 1 in the order given, as a PNG:
+/// for an AI to look at. None when there is nothing to show.
+pub fn sheet(textures: &[&str]) -> Option<Vec<u8>> {
+    const COLUMNS: usize = 8;
+    const GAP: usize = 6;
+    const LABEL: usize = 14;
+    if textures.is_empty() {
+        return None;
+    }
+    let cell = SIZE as usize + GAP;
+    let row_height = SIZE as usize + LABEL + GAP;
+    let rows = textures.len().div_ceil(COLUMNS);
+    let (width, height) = (COLUMNS * cell + GAP, rows * row_height + GAP);
+    let mut sheet = vec![32u8; width * height];
+    for (i, texture) in textures.iter().enumerate() {
+        let (left, top) = (GAP + (i % COLUMNS) * cell, GAP + (i / COLUMNS) * row_height);
+        if let Some((thumb_rows, grey)) = pixels_of(texture) {
+            for y in 0..thumb_rows as usize {
+                let from = y * SIZE as usize;
+                sheet[(top + y) * width + left..(top + y) * width + left + SIZE as usize]
+                    .copy_from_slice(&grey[from..from + SIZE as usize]);
+            }
+        }
+        // The number below, each digit drawn twice as large.
+        for (place, digit) in (i + 1).to_string().bytes().enumerate() {
+            let bits = DIGITS[(digit - b'0') as usize];
+            for y in 0..5 {
+                for x in 0..3 {
+                    if bits >> (14 - (y * 3 + x)) & 1 == 1 {
+                        for (dy, dx) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                            let px = left + place * 8 + x * 2 + dx;
+                            let py = top + SIZE as usize + 3 + y * 2 + dy;
+                            sheet[py * width + px] = 235;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Some(png(width as u32, height as u32, &sheet))
+}
+
+fn pixels(map: &Heightmap, tiles: f32) -> (u32, Vec<u8>) {
     // What is finer than a pixel of the little picture only flickers there: smoothed away first.
     let per_pixel = map.width() as f32 * tiles / SIZE as f32;
     let smoothed;
@@ -57,14 +134,5 @@ fn render(map: &Heightmap, tiles: f32) -> String {
             pixels.push((shade * 255.0) as u8);
         }
     }
-    let mut png = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut png, SIZE, rows);
-        encoder.set_color(png::ColorType::Grayscale);
-        encoder.set_depth(png::BitDepth::Eight);
-        if let Ok(mut writer) = encoder.write_header() {
-            let _ = writer.write_image_data(&pixels);
-        }
-    }
-    base64::engine::general_purpose::STANDARD.encode(png)
+    (rows, pixels)
 }

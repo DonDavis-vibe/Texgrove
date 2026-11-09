@@ -8,7 +8,7 @@ use meshgrove_plugin_api::ui::{
     Choice, Effect, Event, FormRow, JobSpec, Level, MeshOverlay, MeshPaint, Node, PaintTool, StrokePhase, TableColumn,
     TableRow, TextStyle, Unit, View,
 };
-use meshgrove_plugin_api::{Bundle, BundleFile, Derive3mf, HostInfo, PartMesh};
+use meshgrove_plugin_api::{Bundle, HostInfo};
 use serde::{Deserialize, Serialize};
 
 use crate::lang::{self, tr};
@@ -659,15 +659,11 @@ impl PanelState {
         effects
     }
 
-    /// The new file's name: the model's, the texture's, the format's ending. Two models of the
-    /// same name in one batch get a number.
+    /// The new file's name. Two models of the same name in one batch get a number.
     fn file_name(&self, i: usize) -> String {
         let source = &self.sources[i];
         let same = self.sources[..i].iter().filter(|s| s.stem() == source.stem()).count();
-        let number = if same > 0 { format!(" {}", same + 1) } else { String::new() };
-        let texture = crate::textures::name(&self.layers[0].texture);
-        let name = format!("{}{number} – {texture}.{}", source.stem(), self.layers[0].format.extension());
-        name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+        work::file_name(source.stem(), same + 1, &self.layers)
     }
 
     fn export_finished(&mut self, result: Option<serde_json::Value>, error: Option<String>) -> Vec<Effect> {
@@ -685,20 +681,6 @@ impl PanelState {
         self.next_export()
     }
 
-    /// What was done to a model, in words, for the note on its file.
-    fn describe(&self, source: &Source) -> String {
-        let strokes = |layer: &Recipe| source.strokes.iter().filter(|stroke| stroke.layer == layer.uid).count();
-        match &self.layers[..] {
-            [only] => only.describe(strokes(only)),
-            layers => layers
-                .iter()
-                .enumerate()
-                .map(|(i, layer)| tf!("Ebene {}: {}", "Layer {}: {}", i + 1, layer.describe(strokes(layer))))
-                .collect::<Vec<_>>()
-                .join("; "),
-        }
-    }
-
     /// The files made so far, as one bundle.
     fn hand_over(&mut self) -> Vec<Effect> {
         let done = std::mem::take(&mut self.batch.done);
@@ -709,30 +691,7 @@ impl PanelState {
             .iter()
             .map(|(i, made)| {
                 let source = &self.sources[*i];
-                let note = tf!(
-                    "Texgrove {}: {}. Aus {}, {} Dreiecke.",
-                    "Texgrove {}: {}. Made from {}, {} triangles.",
-                    env!("CARGO_PKG_VERSION"),
-                    self.describe(source),
-                    source.name,
-                    lang::count(made.triangles),
-                );
-                // A 3MF whose objects were textured one by one: Meshgrove copies it and swaps them.
-                let derive_3mf = (!made.replace.is_empty()).then(|| Derive3mf {
-                    source: source.reference.clone(),
-                    replace: made
-                        .replace
-                        .iter()
-                        .map(|(part, mesh)| PartMesh { part: part.clone(), mesh: mesh.clone() })
-                        .collect(),
-                });
-                BundleFile {
-                    path: made.file.clone(),
-                    note: Some(note),
-                    next_to: in_library.then(|| source.reference.clone()),
-                    derive_3mf,
-                    ..BundleFile::default()
-                }
+                made.bundle_file(source, work::note(source, &self.layers, made.triangles))
             })
             .collect::<Vec<_>>();
         self.batch.handed += files.len();

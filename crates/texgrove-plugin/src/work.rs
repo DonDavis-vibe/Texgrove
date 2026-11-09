@@ -243,6 +243,59 @@ pub struct Exported {
     pub warnings: Vec<String>,
 }
 
+impl Exported {
+    /// The file as it goes into a bundle: beside its model when that lives in a library, and
+    /// for a project whose objects were textured one by one, as a copy with those swapped.
+    pub fn bundle_file(&self, source: &Source, note: String) -> meshgrove_plugin_api::BundleFile {
+        use meshgrove_plugin_api::{BundleFile, Derive3mf, PartMesh};
+        let derive_3mf = (!self.replace.is_empty()).then(|| Derive3mf {
+            source: source.reference.clone(),
+            replace: self
+                .replace
+                .iter()
+                .map(|(part, mesh)| PartMesh { part: part.clone(), mesh: mesh.clone() })
+                .collect(),
+        });
+        BundleFile {
+            path: self.file.clone(),
+            note: Some(note),
+            next_to: source.in_library().then(|| source.reference.clone()),
+            derive_3mf,
+            ..BundleFile::default()
+        }
+    }
+}
+
+/// The name a textured file gets: the model's, the texture's, the format's ending.
+pub fn file_name(stem: &str, number: usize, layers: &[Recipe]) -> String {
+    let texture = layers.first().map_or_else(String::new, |layer| crate::textures::name(&layer.texture));
+    let extension = layers.first().map_or("3mf", |layer| layer.format.extension());
+    let number = if number > 1 { format!(" {number}") } else { String::new() };
+    format!("{stem}{number} – {texture}.{extension}").replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+}
+
+/// What was done to a model, in words, for the note on its file.
+pub fn note(source: &Source, layers: &[Recipe], triangles: usize) -> String {
+    let strokes = |layer: &Recipe| source.strokes.iter().filter(|stroke| stroke.layer == layer.uid).count();
+    let what = match layers {
+        [only] => only.describe(strokes(only)),
+        layers => layers
+            .iter()
+            .enumerate()
+            .map(|(i, layer)| crate::tf!("Ebene {}: {}", "Layer {}: {}", i + 1, layer.describe(strokes(layer))))
+            .collect::<Vec<_>>()
+            .join("; "),
+    };
+    crate::tf!(
+        "Texgrove {}: {}. Aus {}, {} Dreiecke.",
+        "Texgrove {}: {}. Made from {}, {} triangles.",
+        env!("CARGO_PKG_VERSION"),
+        what,
+        source.name,
+        crate::lang::count(triangles),
+    )
+}
+
 /// A warning of the kernel in words.
 fn warning_text(warning: &pipeline::Warning) -> String {
     use crate::lang::number;
@@ -273,7 +326,7 @@ fn failed(what: &str, error: impl std::fmt::Display) -> PluginError {
 }
 
 /// Reads a model through Meshgrove and joins its corners.
-fn load(source: &Source, budget: u32) -> Result<Mesh, PluginError> {
+pub fn load(source: &Source, budget: u32) -> Result<Mesh, PluginError> {
     let data: MeshData = library::triangles(&source.reference, budget).map_err(PluginError::Denied)?.into();
     let mesh = Mesh::from_flat(&data.positions, &data.indices).map_err(|e| failed(&source.name, e))?;
     if mesh.triangles.is_empty() {
@@ -326,53 +379,70 @@ fn texture(
     Ok((done, untouched))
 }
 
-/// The preview: the model as it is and textured coarsely, each with a list of the triangles
-/// that get no texture, written for the panel to show.
-pub fn preview(job: &PreviewJob) -> Result<serde_json::Value, PluginError> {
-    guest::host::progress(0.0, crate::lang::tr("Modell laden", "Loading the model"));
-    let _ = std::fs::create_dir_all(PREVIEW_DIR);
-    let maps = maps(&job.layers)?;
-    let mut warnings = Vec::new();
-    let (mut plain, mut plain_out) = (Mesh::default(), Vec::new());
-    let (mut textured, mut textured_out) = (Mesh::default(), Vec::new());
+/// A model as it is and textured coarsely, each with which of its triangles get no texture.
+pub struct Look {
+    pub plain: Mesh,
+    pub plain_out: Vec<bool>,
+    pub textured: Mesh,
+    pub textured_out: Vec<bool>,
+    pub warnings: Vec<String>,
+}
+
+/// Textures a model coarsely for a look at it: read with at most `read` triangles, refined to
+/// about `budget`, nothing reduced.
+pub fn look(source: &Source, layers: &[Recipe], nozzle: f32, read: u32, budget: usize) -> Result<Look, PluginError> {
+    let maps = maps(layers)?;
+    let mut look = Look {
+        plain: Mesh::default(),
+        plain_out: Vec::new(),
+        textured: Mesh::default(),
+        textured_out: Vec::new(),
+        warnings: Vec::new(),
+    };
     // A model is one mesh; a project is its objects, each textured in its own coordinates, as
     // the file to keep will have it, and then put where it stands.
     let whole = [None];
-    let parts: Vec<Option<&Part>> = job.source.parts.iter().map(Some).collect();
+    let parts: Vec<Option<&Part>> = source.parts.iter().map(Some).collect();
     let pieces: &[Option<&Part>] = if parts.is_empty() { &whole } else { &parts };
     for piece in pieces {
         let (mesh, skipped) = match piece {
-            None => (load(&job.source, PREVIEW_SOURCE)?, false),
-            Some(part) => (
-                load_part(&job.source, part, PREVIEW_SOURCE / pieces.len() as u32)?,
-                job.source.skipped.contains(&part.token),
-            ),
+            None => (load(source, read)?, false),
+            Some(part) => (load_part(source, part, read / pieces.len() as u32)?, source.skipped.contains(&part.token)),
         };
         let place = |mesh: Mesh| match piece {
             Some(part) => part.placed(mesh),
             None => mesh,
         };
         if skipped {
-            plain_out.extend(std::iter::repeat_n(true, mesh.triangles.len()));
-            textured_out.extend(std::iter::repeat_n(true, mesh.triangles.len()));
-            plain.append(&place(mesh.clone()));
-            textured.append(&place(mesh));
+            look.plain_out.extend(std::iter::repeat_n(true, mesh.triangles.len()));
+            look.textured_out.extend(std::iter::repeat_n(true, mesh.triangles.len()));
+            look.plain.append(&place(mesh.clone()));
+            look.textured.append(&place(mesh));
             continue;
         }
-        let finish = recipe::preview_finish(&job.layers, &maps, job.nozzle, PREVIEW_TRIANGLES / pieces.len());
-        let (done, untouched) = texture(&mesh, &job.source, *piece, &job.layers, &maps, &finish)?;
-        plain_out.extend(untouched);
-        warnings.extend(done.warnings.iter().map(warning_text));
-        plain.append(&place(mesh));
-        textured_out.extend(&done.left_out);
-        textured.append(&place(done.mesh));
+        let finish = recipe::preview_finish(layers, &maps, nozzle, budget / pieces.len());
+        let (done, untouched) = texture(&mesh, source, *piece, layers, &maps, &finish)?;
+        look.plain_out.extend(untouched);
+        look.warnings.extend(done.warnings.iter().map(warning_text));
+        look.plain.append(&place(mesh));
+        look.textured_out.extend(&done.left_out);
+        look.textured.append(&place(done.mesh));
     }
-    write_mesh(&format!("{PREVIEW_DIR}/{}", job.plain), &plain)?;
-    write_marks(&format!("{PREVIEW_DIR}/{}", job.plain_marks), &plain_out)?;
-    write_mesh(&format!("{PREVIEW_DIR}/{}", job.textured), &textured)?;
-    write_marks(&format!("{PREVIEW_DIR}/{}", job.textured_marks), &textured_out)?;
+    Ok(look)
+}
+
+/// The preview: the model as it is and textured coarsely, each with a list of the triangles
+/// that get no texture, written for the panel to show.
+pub fn preview(job: &PreviewJob) -> Result<serde_json::Value, PluginError> {
+    guest::host::progress(0.0, crate::lang::tr("Modell laden", "Loading the model"));
+    let _ = std::fs::create_dir_all(PREVIEW_DIR);
+    let look = look(&job.source, &job.layers, job.nozzle, PREVIEW_SOURCE, PREVIEW_TRIANGLES)?;
+    write_mesh(&format!("{PREVIEW_DIR}/{}", job.plain), &look.plain)?;
+    write_marks(&format!("{PREVIEW_DIR}/{}", job.plain_marks), &look.plain_out)?;
+    write_mesh(&format!("{PREVIEW_DIR}/{}", job.textured), &look.textured)?;
+    write_marks(&format!("{PREVIEW_DIR}/{}", job.textured_marks), &look.textured_out)?;
     prune(PREVIEW_DIR, 24);
-    Ok(serde_json::json!({"triangles": textured.triangles.len(), "warnings": warnings}))
+    Ok(serde_json::json!({"triangles": look.textured.triangles.len(), "warnings": look.warnings}))
 }
 
 /// One object of a 3MF through Meshgrove, its corners joined.

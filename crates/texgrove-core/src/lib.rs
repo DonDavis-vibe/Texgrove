@@ -33,6 +33,7 @@ pub mod picture;
 pub mod pipeline;
 pub mod project;
 pub mod quality;
+pub mod raster;
 pub mod select;
 pub mod shapes;
 pub mod subdivide;
