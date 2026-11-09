@@ -23,7 +23,7 @@ MCP von Linux aus über SSH gesteuert) · **H** Screenshot-Hook mit gescripteten
 | 1.3 | `apply` als 3MF neben das Original | A | ✅ `Würfel – groß – Bricks.3mf`, Ziel `C:\dev\TexLib\Werkstatt – Prüfung\…`; **byte-gleich mit Linux** |
 | 1.4 | `apply` als STL, nur außen | A | ✅ `rohr – Hexagons.stl`, byte-gleich mit Linux |
 | 1.5 | Großes Modell: Adapter, Rändel, Normal (1 M Dreiecke) | A | ✅ 21 s (Linux 18 s) |
-| 1.6 | Mehrteilige 3MF: Teileliste, ein Objekt tauschen (`derive_3mf`) | A | ✅ 7 Teile gelistet; getauschte Datei hat denselben Inhalt wie unter Linux (nur das Betriebssystem-Byte der ZIP-Einträge ist anders – an die Host-Session gemeldet) |
+| 1.6 | Mehrteilige 3MF: Teileliste, ein Objekt tauschen (`derive_3mf`) | A | ✅ 7 Teile gelistet; getauschte Datei hat denselben Inhalt wie unter Linux (nur das Betriebssystem-Byte der ZIP-Einträge war anders – im Host-Branch behoben mit e4f6513, in der VM noch nicht neu gebaut) |
 | 1.7 | MCP: ohne „Bibliothek lesen“ | A | ✅ klare Absage (unter Linux geprüft, gleicher Code) |
 | 1.8 | MCP: `texgrove_inspect`, `texgrove_preview`, `texgrove_apply` | A | ✅ Bild kommt, Job startet, `meshgrove-mcp.exe` wartet nach dem Schließen 6 s auf den Job, Vorschlag „bin_2x1_6u – Waben“ steht in der Prüfung |
 
