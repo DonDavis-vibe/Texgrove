@@ -8,11 +8,12 @@ use meshgrove_plugin_api::MeshData;
 use meshgrove_plugin_api::guest::{self, PluginError, library};
 use serde::{Deserialize, Serialize};
 use texgrove_core::export::{stl, threemf};
+use texgrove_core::heightmap::Heightmap;
 use texgrove_core::mask::{Dab, DabKind, Op};
-use texgrove_core::pipeline::{self, Stage};
+use texgrove_core::pipeline::{self, Finish, Stage, Textured};
 use texgrove_core::{Mesh, weld};
 
-use crate::recipe::{On, Recipe};
+use crate::recipe::{self, On, Recipe};
 
 /// Where previews are kept between a job and the panel.
 pub const PREVIEW_DIR: &str = "/data/preview";
@@ -44,6 +45,9 @@ pub struct Source {
 /// What one press of the mouse did: a click on a face, or a line of brush dabs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Stroke {
+    /// The layer it was painted for, by the layer's `uid`.
+    #[serde(default)]
+    pub layer: u32,
     pub ops: Vec<PaintOp>,
 }
 
@@ -150,13 +154,15 @@ impl Source {
             .collect();
     }
 
-    /// The user's strokes for the kernel, in the coordinates of `part` (or the model's own).
-    pub fn ops(&self, part: Option<&Part>) -> Vec<Op> {
+    /// The user's strokes for one layer for the kernel, in the coordinates of `part` (or the
+    /// model's own).
+    pub fn ops(&self, part: Option<&Part>, layer: u32) -> Vec<Op> {
         let point = |p: [f32; 3]| part.map_or(p, |part| part.to_local(p));
         let dir = |d: [f32; 3]| part.map_or(d, |part| part.dir_to_local(d));
         let kind = |include: bool| if include { DabKind::Include } else { DabKind::Exclude };
         self.strokes
             .iter()
+            .filter(|stroke| stroke.layer == layer)
             .flat_map(|stroke| &stroke.ops)
             .map(|op| match *op {
                 PaintOp::Clear => Op::Clear,
@@ -193,7 +199,8 @@ impl Source {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreviewJob {
     pub source: Source,
-    pub recipe: Recipe,
+    /// The textures, the lowest first.
+    pub layers: Vec<Recipe>,
     pub nozzle: f32,
     /// The file names (below [`PREVIEW_DIR`]) to write the model as it is and as textured.
     pub plain: String,
@@ -207,10 +214,18 @@ pub struct PreviewJob {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportJob {
     pub source: Source,
-    pub recipe: Recipe,
+    /// The textures, the lowest first.
+    pub layers: Vec<Recipe>,
     pub nozzle: f32,
     /// The file to write below `/out`.
     pub file: String,
+}
+
+impl ExportJob {
+    /// The format of the file: the first layer carries it.
+    fn format(&self) -> recipe::Format {
+        self.layers.first().map_or(recipe::Format::ThreeMf, |layer| layer.format)
+    }
 }
 
 /// What an export job answers.
@@ -278,12 +293,45 @@ fn progress(stage: Stage, done: f32) -> bool {
     !guest::host::cancelled()
 }
 
+/// The height maps of the layers.
+fn maps(layers: &[Recipe]) -> Result<Vec<Heightmap>, PluginError> {
+    if layers.is_empty() {
+        return Err(PluginError::Invalid("no texture".into()));
+    }
+    layers.iter().map(|layer| layer.map().map_err(PluginError::Failed)).collect()
+}
+
+/// Puts the layers onto one mesh (a model, or one object of a project). Also says, for every
+/// triangle of the mesh as it came, whether no layer may touch it.
+fn texture(
+    mesh: &Mesh,
+    source: &Source,
+    part: Option<&Part>,
+    layers: &[Recipe],
+    maps: &[Heightmap],
+    finish: &Finish,
+) -> Result<(Textured, Vec<bool>), PluginError> {
+    let built: Vec<pipeline::Layer> = layers
+        .iter()
+        .zip(maps)
+        .map(|(layer, map)| layer.layer(mesh, map, &On { ops: &source.ops(part, layer.uid), part }))
+        .collect();
+    let mut untouched = vec![true; mesh.triangles.len()];
+    for layer in &built {
+        for (out, active) in untouched.iter_mut().zip(layer.mask.active(mesh)) {
+            *out &= !active;
+        }
+    }
+    let done = pipeline::texture_layers(mesh, &built, finish, &mut progress).ok_or(PluginError::Cancelled)?;
+    Ok((done, untouched))
+}
+
 /// The preview: the model as it is and textured coarsely, each with a list of the triangles
 /// that get no texture, written for the panel to show.
 pub fn preview(job: &PreviewJob) -> Result<serde_json::Value, PluginError> {
     guest::host::progress(0.0, crate::lang::tr("Modell laden", "Loading the model"));
     let _ = std::fs::create_dir_all(PREVIEW_DIR);
-    let map = job.recipe.map().map_err(PluginError::Failed)?;
+    let maps = maps(&job.layers)?;
     let mut warnings = Vec::new();
     let (mut plain, mut plain_out) = (Mesh::default(), Vec::new());
     let (mut textured, mut textured_out) = (Mesh::default(), Vec::new());
@@ -311,11 +359,9 @@ pub fn preview(job: &PreviewJob) -> Result<serde_json::Value, PluginError> {
             textured.append(&place(mesh));
             continue;
         }
-        let ops = job.source.ops(*piece);
-        let on = On { ops: &ops, part: *piece };
-        let settings = job.recipe.preview_settings(&mesh, job.nozzle, PREVIEW_TRIANGLES / pieces.len(), &map, &on);
-        plain_out.extend(settings.mask.active(&mesh).iter().map(|active| !active));
-        let done = pipeline::texture_with(&mesh, &map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
+        let finish = recipe::preview_finish(&job.layers, &maps, job.nozzle, PREVIEW_TRIANGLES / pieces.len());
+        let (done, untouched) = texture(&mesh, &job.source, *piece, &job.layers, &maps, &finish)?;
+        plain_out.extend(untouched);
         warnings.extend(done.warnings.iter().map(warning_text));
         plain.append(&place(mesh));
         textured_out.extend(&done.left_out);
@@ -340,14 +386,13 @@ fn load_part(source: &Source, part: &Part, budget: u32) -> Result<Mesh, PluginEr
 /// objects' meshes written; Meshgrove swaps them into a copy of the file.
 pub fn export(job: &ExportJob) -> Result<Exported, PluginError> {
     guest::host::progress(0.0, crate::lang::tr("Modell laden", "Loading the model"));
-    let map = job.recipe.map().map_err(PluginError::Failed)?;
+    let maps = maps(&job.layers)?;
     if !job.source.parts.is_empty() {
-        return export_parts(job, &map);
+        return export_parts(job, &maps);
     }
     let source = load(&job.source, EXPORT_SOURCE)?;
-    let ops = job.source.ops(None);
-    let settings = job.recipe.settings(&source, job.nozzle, &map, &On { ops: &ops, part: None });
-    let textured = pipeline::texture_with(&source, &map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
+    let finish = recipe::finish(&job.layers, &maps, job.nozzle);
+    let (textured, _) = texture(&source, &job.source, None, &job.layers, &maps, &finish)?;
     guest::host::progress(0.95, crate::lang::tr("Datei schreiben", "Writing the file"));
     write_file(job, &textured.mesh)?;
     Ok(Exported {
@@ -360,12 +405,12 @@ pub fn export(job: &ExportJob) -> Result<Exported, PluginError> {
     })
 }
 
-fn export_parts(job: &ExportJob, map: &texgrove_core::heightmap::Heightmap) -> Result<Exported, PluginError> {
+fn export_parts(job: &ExportJob, maps: &[Heightmap]) -> Result<Exported, PluginError> {
     let chosen: Vec<&Part> = job.source.chosen().collect();
     if chosen.is_empty() {
         return Err(PluginError::Invalid(crate::lang::tr("Kein Teil gewählt", "No part chosen").into()));
     }
-    let as_3mf = job.recipe.format == crate::recipe::Format::ThreeMf;
+    let as_3mf = job.format() == recipe::Format::ThreeMf;
     let parts: Vec<&Part> = if as_3mf { chosen.clone() } else { job.source.parts.iter().collect() };
     let budget = EXPORT_SOURCE / parts.len().max(1) as u32;
     let mut meshes = Vec::with_capacity(parts.len());
@@ -384,11 +429,10 @@ fn export_parts(job: &ExportJob, map: &texgrove_core::heightmap::Heightmap) -> R
     for (i, part) in parts.iter().enumerate() {
         let mesh = std::mem::take(&mut meshes[i]);
         let mesh = if chosen.contains(part) {
-            let ops = job.source.ops(Some(part));
-            let mut settings = job.recipe.settings(&mesh, job.nozzle, map, &On { ops: &ops, part: Some(part) });
+            let mut finish = recipe::finish(&job.layers, maps, job.nozzle);
             let share = areas[i].max(0.0) / textured_area;
-            settings.finish.triangles = ((settings.finish.triangles as f64 * share) as usize).max(20_000);
-            let done = pipeline::texture_with(&mesh, map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
+            finish.triangles = ((finish.triangles as f64 * share) as usize).max(20_000);
+            let (done, _) = texture(&mesh, &job.source, Some(part), &job.layers, maps, &finish)?;
             refined += done.refined_triangles;
             warnings.extend(done.warnings.iter().map(warning_text));
             edge = edge.max(done.edge);
@@ -418,7 +462,7 @@ fn export_parts(job: &ExportJob, map: &texgrove_core::heightmap::Heightmap) -> R
 fn write_file(job: &ExportJob, mesh: &Mesh) -> Result<(), PluginError> {
     let path = format!("/out/{}", job.file);
     let name = job.file.rsplit_once('.').map_or(job.file.as_str(), |(stem, _)| stem);
-    let bytes = match job.recipe.format {
+    let bytes = match job.format() {
         crate::recipe::Format::Stl => stl::to_bytes(mesh, name),
         crate::recipe::Format::ThreeMf => {
             let object = threemf::Object { name, mesh, transform: None };

@@ -58,6 +58,9 @@ pub struct Mask {
     pub faces: Vec<u8>,
     /// Brush strokes, in the order they were made.
     pub dabs: Vec<Dab>,
+    /// Texture only where it was asked for (picked faces, brushed places), even while nothing
+    /// is: a layer that starts empty and is painted on.
+    pub only_picked: bool,
 }
 
 /// Something the user did to say where a texture goes, kept as geometry: a point on the model,
@@ -135,7 +138,7 @@ impl Mask {
 
     /// Whether texture only goes where it was asked for.
     fn picks(&self) -> bool {
-        self.faces.contains(&INCLUDED) || self.brushes_in()
+        self.only_picked || self.faces.contains(&INCLUDED) || self.brushes_in()
     }
 
     fn brushes_in(&self) -> bool {
@@ -423,6 +426,19 @@ mod tests {
             let inside = p[2] == 10.0 && vec::distance(*p, paint.centre) <= 3.0;
             assert_eq!(*w, if inside { 1.0 } else { 0.0 }, "{p:?}");
         }
+    }
+
+    #[test]
+    fn a_mask_that_starts_empty_textures_nothing_until_something_is_picked() {
+        let empty = Mask { only_picked: true, ..Mask::default() };
+        let (refined, w) = weights(&empty, 2.0);
+        assert!(!empty.active(&refined.source).contains(&true));
+        assert!(w.iter().all(|w| *w == 0.0));
+        let mut faces = vec![0; 12];
+        faces[2] = INCLUDED;
+        faces[3] = INCLUDED;
+        let top = Mask { faces, only_picked: true, ..Mask::default() };
+        assert_eq!(top.active(&refined.source).iter().filter(|a| **a).count(), 2);
     }
 
     #[test]

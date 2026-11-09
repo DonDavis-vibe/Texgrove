@@ -4,11 +4,12 @@
 use serde::{Deserialize, Serialize};
 use texgrove_core::Mesh;
 use texgrove_core::bvh::Bvh;
+use texgrove_core::displace::Blend;
 use texgrove_core::displace::Relief;
 use texgrove_core::heightmap::Heightmap;
 use texgrove_core::mask::{EXCLUDED, Mask, Op};
 use texgrove_core::pattern::Pattern;
-use texgrove_core::pipeline::{Finish, Settings};
+use texgrove_core::pipeline::{Finish, Layer};
 use texgrove_core::project::{Mapping, Placement};
 use texgrove_core::quality::{self, Quality};
 use texgrove_core::select;
@@ -38,6 +39,12 @@ pub struct Recipe {
     pub blend: f32,
     /// Where the stamp sits, in the coordinates of the model as shown.
     pub stamp: Option<StampAt>,
+    /// A number that stays with the layer when others come and go: its strokes carry it.
+    pub uid: u32,
+    /// The layer's relief is added to the layers below instead of taking their place.
+    pub add: bool,
+    /// Texture only where the user marked it: a layer that starts empty.
+    pub only_marked: bool,
     pub place: Place,
     /// Faces looking down within this many degrees stay smooth.
     pub bottom: f32,
@@ -60,6 +67,9 @@ impl Default for Recipe {
             rotation: 0.0,
             blend: 20.0,
             stamp: None,
+            uid: 0,
+            add: false,
+            only_marked: false,
             place: Place::All,
             bottom: 5.0,
             top: 0.0,
@@ -300,6 +310,21 @@ impl Format {
     }
 }
 
+/// How fine to work for the file to keep: the first layer's quality, for the finest thing any
+/// layer shows, on this nozzle.
+pub fn finish(layers: &[Recipe], maps: &[Heightmap], nozzle: f32) -> Finish {
+    let feature = layers.iter().zip(maps).map(|(layer, map)| layer.feature(map)).fold(f32::INFINITY, f32::min);
+    let quality = layers.first().map_or(Quality::Normal, |layer| layer.quality.quality());
+    quality::finish(quality, if feature.is_finite() { feature } else { 1.0 }, nozzle)
+}
+
+/// How fine to work for a quick look: at most about `budget` triangles, nothing reduced.
+pub fn preview_finish(layers: &[Recipe], maps: &[Heightmap], nozzle: f32, budget: usize) -> Finish {
+    let feature = layers.iter().zip(maps).map(|(layer, map)| layer.feature(map)).fold(f32::INFINITY, f32::min);
+    let draft = quality::finish(Quality::Draft, if feature.is_finite() { feature } else { 1.0 }, nozzle);
+    Finish { max_triangles: budget, triangles: usize::MAX, tolerance: 0.0, ..draft }
+}
+
 /// A pattern's name for people.
 pub fn pattern_label(pattern: Pattern) -> &'static str {
     match pattern {
@@ -358,23 +383,12 @@ impl Recipe {
         }
         // A click on the textured preview lies off the model's own surface by the relief at most.
         mask.apply_ops(source, on.ops, self.depth.max(0.0) + 1.0);
+        mask.only_picked = self.only_marked;
         mask
     }
 
-    /// The kernel's settings for the file to keep: the quality's fineness for this nozzle.
-    pub fn settings(&self, source: &Mesh, nozzle: f32, map: &Heightmap, on: &On) -> Settings {
-        let finish = quality::finish(self.quality.quality(), self.feature(map), nozzle);
-        self.with_finish(source, finish, on)
-    }
-
-    /// The kernel's settings for a quick look: at most about `budget` triangles, nothing reduced.
-    pub fn preview_settings(&self, source: &Mesh, nozzle: f32, budget: usize, map: &Heightmap, on: &On) -> Settings {
-        let draft = quality::finish(Quality::Draft, self.feature(map), nozzle);
-        let finish = Finish { max_triangles: budget, triangles: usize::MAX, tolerance: 0.0, ..draft };
-        self.with_finish(source, finish, on)
-    }
-
-    fn with_finish(&self, source: &Mesh, finish: Finish, on: &On) -> Settings {
+    /// The layer for the kernel: this recipe on `source` (a welded mesh) with its height map.
+    pub fn layer<'a>(&self, source: &Mesh, map: &'a Heightmap, on: &On) -> Layer<'a> {
         let stamp = self.stamp.filter(|_| self.mapping == MappingChoice::Stamp).map(|at| {
             let (centre, normal) = match on.part {
                 Some(part) => (part.to_local(at.centre), part.dir_to_local(at.normal)),
@@ -390,12 +404,13 @@ impl Recipe {
                 _ => (centre, normal),
             }
         });
-        Settings {
+        Layer {
+            map,
             mapping: self.mapping.mapping(self.blend / 100.0, stamp),
             placement: Placement { tile: self.tile.max(0.1), rotation: self.rotation, ..Placement::default() },
             relief: self.relief(),
             mask: self.mask(source, on),
-            finish,
+            blend: if self.add { Blend::Add } else { Blend::Cover },
         }
     }
 
@@ -418,6 +433,12 @@ impl Recipe {
         }
         if self.invert {
             parts.push(tr("umgekehrt", "inverted").into());
+        }
+        if self.only_marked {
+            parts.push(tr("nur auf markierten Flächen", "only on marked surfaces").into());
+        }
+        if self.add {
+            parts.push(tr("zu den Ebenen darunter addiert", "added to the layers below").into());
         }
         if self.bottom > 0.0 {
             parts.push(crate::tf!("Unterseite frei ({}°)", "bottom left smooth ({}°)", number(self.bottom, 0)));

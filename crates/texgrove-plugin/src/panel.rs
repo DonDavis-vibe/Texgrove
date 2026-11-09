@@ -23,7 +23,10 @@ pub struct PanelState {
     pub sources: Vec<Source>,
     /// The source shown in the 3D view.
     pub selected: usize,
-    pub recipe: Recipe,
+    /// The textures on the model, the lowest first; never empty.
+    pub layers: Vec<Recipe>,
+    /// The layer the settings show and the tools paint for.
+    pub active: usize,
     /// Show the model as it is instead of textured.
     pub plain: bool,
     /// The gallery group shown.
@@ -143,7 +146,7 @@ impl TexturePanel {
             }
             Event::FilePicked { id, name, path } if id == "picture" => match crate::textures::add(&path, &name) {
                 Ok(texture) => {
-                    s.recipe.texture = texture;
+                    s.recipe_mut().texture = texture;
                     s.group = "own".into();
                     changed = true;
                 }
@@ -156,7 +159,7 @@ impl TexturePanel {
             }
             Event::Click { id } => {
                 if let Some(texture) = id.strip_prefix("texture:") {
-                    s.recipe.texture = texture.to_owned();
+                    s.recipe_mut().texture = texture.to_owned();
                     changed = true;
                 }
                 match id.as_str() {
@@ -185,11 +188,12 @@ impl TexturePanel {
                         multiple: false,
                         into: meshgrove_plugin_api::ui::PickInto::Data,
                     }),
-                    "forget" if s.recipe.texture.starts_with(crate::textures::OWN) => {
-                        if let Err(e) = crate::textures::remove(&s.recipe.texture) {
+                    "forget" if s.recipe().texture.starts_with(crate::textures::OWN) => {
+                        let texture = s.recipe().texture.clone();
+                        if let Err(e) = crate::textures::remove(&texture) {
                             s.message = Some((Level::Error, e));
                         }
-                        s.recipe.texture = "knurl".into();
+                        s.recipe_mut().texture = "knurl".into();
                         changed = true;
                     }
                     "plain" => {
@@ -216,8 +220,37 @@ impl TexturePanel {
                         s.add_stroke(vec![PaintOp::Clear]);
                         changed = true;
                     }
+                    "add_layer" if s.layers.len() < 4 => {
+                        let uid = s.layers.iter().map(|layer| layer.uid).max().unwrap_or(0) + 1;
+                        let (quality, format) = (s.layers[0].quality, s.layers[0].format);
+                        // A new layer starts empty: it goes where the user marks surfaces for it.
+                        s.layers.push(Recipe {
+                            uid,
+                            only_marked: true,
+                            texture: "hexagons".into(),
+                            quality,
+                            format,
+                            ..Recipe::default()
+                        });
+                        s.active = s.layers.len() - 1;
+                        s.group.clear();
+                        s.tool = Tool::Fill;
+                        s.include = true;
+                        changed = true;
+                    }
+                    "remove_layer" if s.layers.len() > 1 => {
+                        let at = s.active.min(s.layers.len() - 1);
+                        let gone = s.layers.remove(at).uid;
+                        for source in &mut s.sources {
+                            source.strokes.retain(|stroke| stroke.layer != gone);
+                        }
+                        s.undone.clear();
+                        s.active = at.min(s.layers.len() - 1);
+                        s.group.clear();
+                        changed = true;
+                    }
                     "unstamp" => {
-                        s.recipe.stamp = None;
+                        s.recipe_mut().stamp = None;
                         changed = true;
                     }
                     "apply" => effects.extend(s.start_batch()),
@@ -236,8 +269,8 @@ impl TexturePanel {
                     let include = s.include;
                     s.add_stroke(vec![PaintOp::Fill { point: hit.point, normal: hit.normal, include, erase: shift }]);
                     changed = true;
-                } else if s.tool == Tool::Off && s.recipe.mapping == MappingChoice::Stamp {
-                    s.recipe.stamp = Some(StampAt { centre: hit.point, normal: hit.normal });
+                } else if s.tool == Tool::Off && s.recipe().mapping == MappingChoice::Stamp {
+                    s.recipe_mut().stamp = Some(StampAt { centre: hit.point, normal: hit.normal });
                     changed = true;
                 }
             }
@@ -347,6 +380,16 @@ impl PanelState {
         }
     }
 
+    /// The layer the settings show.
+    fn recipe(&self) -> &Recipe {
+        &self.layers[self.active.min(self.layers.len() - 1)]
+    }
+
+    fn recipe_mut(&mut self) -> &mut Recipe {
+        let at = self.active.min(self.layers.len() - 1);
+        &mut self.layers[at]
+    }
+
     /// The brush's radius in mm, within what makes sense.
     fn brush_radius(&self) -> f32 {
         if self.brush > 0.0 { self.brush.clamp(0.2, 100.0) } else { 3.0 }
@@ -354,12 +397,13 @@ impl PanelState {
 
     /// Adds what one press of the mouse did to the shown model; "redo" starts over.
     fn add_stroke(&mut self, ops: Vec<PaintOp>) {
+        let layer = self.recipe().uid;
         if let Some(source) = self.sources.get_mut(self.selected) {
             // Far more marks than anyone paints by hand: the oldest go.
             if source.strokes.len() >= 2000 {
                 source.strokes.remove(0);
             }
-            source.strokes.push(Stroke { ops });
+            source.strokes.push(Stroke { layer, ops });
             self.undone.clear();
         }
     }
@@ -399,9 +443,36 @@ impl PanelState {
                 self.hardness = v.clamp(0.0, 100.0);
                 return false;
             }
+            ("layer", _) => {
+                self.active = text.parse::<usize>().unwrap_or(0).min(self.layers.len() - 1);
+                // The gallery shows the group of the layer's texture, the tool what the layer asks for.
+                self.group.clear();
+                self.include = self.recipe().only_marked;
+                return false;
+            }
+            ("group", _) => {
+                self.group = text.to_owned();
+                return false;
+            }
+            ("search", _) => {
+                self.search = text.trim().to_owned();
+                self.run_search();
+                return false;
+            }
+            // The file's quality and format are the same for all layers.
+            ("quality", _) => {
+                let quality = QualityChoice::from_id(text).unwrap_or(self.layers[0].quality);
+                self.layers.iter_mut().for_each(|layer| layer.quality = quality);
+                return false; // only the file to keep depends on it
+            }
+            ("format", _) => {
+                let format = if text == "stl" { Format::Stl } else { Format::ThreeMf };
+                self.layers.iter_mut().for_each(|layer| layer.format = format);
+                return false;
+            }
             _ => {}
         }
-        let r = &mut self.recipe;
+        let r = self.recipe_mut();
         match (id, number) {
             ("tile", Some(v)) => r.tile = v.clamp(0.2, 200.0),
             ("depth", Some(v)) => r.depth = v.clamp(0.0, 20.0),
@@ -414,23 +485,8 @@ impl PanelState {
             ("relief", _) => r.relief = ReliefChoice::from_id(text).unwrap_or(r.relief),
             ("place", _) => r.place = Place::from_id(text).unwrap_or(r.place),
             ("invert", _) => r.invert = value.as_bool().unwrap_or(r.invert),
-            ("quality", _) => {
-                r.quality = QualityChoice::from_id(text).unwrap_or(r.quality);
-                return false; // only the file to keep depends on it
-            }
-            ("format", _) => {
-                r.format = if text == "stl" { Format::Stl } else { Format::ThreeMf };
-                return false;
-            }
-            ("group", _) => {
-                self.group = text.to_owned();
-                return false;
-            }
-            ("search", _) => {
-                self.search = text.trim().to_owned();
-                self.run_search();
-                return false;
-            }
+            ("layer_blend", _) => r.add = text == "add",
+            ("only_marked", _) => r.only_marked = value.as_bool().unwrap_or(r.only_marked),
             _ => return false,
         }
         true
@@ -462,7 +518,12 @@ impl PanelState {
             return effects;
         };
         let plain = format!("p-{}", work::cache_key(&source.reference));
-        let look = Recipe { quality: QualityChoice::Normal, format: Format::ThreeMf, ..self.recipe.clone() };
+        // The file's quality and format do not change the look.
+        let look: Vec<Recipe> = self
+            .layers
+            .iter()
+            .map(|layer| Recipe { quality: QualityChoice::Normal, format: Format::ThreeMf, ..layer.clone() })
+            .collect();
         // The parts left out and the strokes painted change the look as well.
         let key = work::cache_key(&(
             &source.reference,
@@ -499,7 +560,7 @@ impl PanelState {
             effects.push(Effect::CancelJob { job: format!("preview:{running}") });
         }
         let job =
-            PreviewJob { source, recipe: look, nozzle: self.host.nozzle, plain, textured, plain_marks, textured_marks };
+            PreviewJob { source, layers: look, nozzle: self.host.nozzle, plain, textured, plain_marks, textured_marks };
         self.view.running = Some((key.clone(), 0.0, String::new()));
         self.view.failed = None;
         effects.push(Effect::StartJobs {
@@ -585,7 +646,7 @@ impl PanelState {
         self.batch.queue.remove(0);
         let source = self.sources[next].clone();
         let job =
-            ExportJob { file: self.file_name(next), source, recipe: self.recipe.clone(), nozzle: self.host.nozzle };
+            ExportJob { file: self.file_name(next), source, layers: self.layers.clone(), nozzle: self.host.nozzle };
         self.batch.current = Some((next, 0.0, String::new()));
         effects.push(Effect::StartJobs {
             jobs: vec![JobSpec {
@@ -604,8 +665,8 @@ impl PanelState {
         let source = &self.sources[i];
         let same = self.sources[..i].iter().filter(|s| s.stem() == source.stem()).count();
         let number = if same > 0 { format!(" {}", same + 1) } else { String::new() };
-        let texture = crate::textures::name(&self.recipe.texture);
-        let name = format!("{}{number} – {texture}.{}", source.stem(), self.recipe.format.extension());
+        let texture = crate::textures::name(&self.layers[0].texture);
+        let name = format!("{}{number} – {texture}.{}", source.stem(), self.layers[0].format.extension());
         name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
     }
 
@@ -624,6 +685,20 @@ impl PanelState {
         self.next_export()
     }
 
+    /// What was done to a model, in words, for the note on its file.
+    fn describe(&self, source: &Source) -> String {
+        let strokes = |layer: &Recipe| source.strokes.iter().filter(|stroke| stroke.layer == layer.uid).count();
+        match &self.layers[..] {
+            [only] => only.describe(strokes(only)),
+            layers => layers
+                .iter()
+                .enumerate()
+                .map(|(i, layer)| tf!("Ebene {}: {}", "Layer {}: {}", i + 1, layer.describe(strokes(layer))))
+                .collect::<Vec<_>>()
+                .join("; "),
+        }
+    }
+
     /// The files made so far, as one bundle.
     fn hand_over(&mut self) -> Vec<Effect> {
         let done = std::mem::take(&mut self.batch.done);
@@ -638,7 +713,7 @@ impl PanelState {
                     "Texgrove {}: {}. Aus {}, {} Dreiecke.",
                     "Texgrove {}: {}. Made from {}, {} triangles.",
                     env!("CARGO_PKG_VERSION"),
-                    self.recipe.describe(source.strokes.len()),
+                    self.describe(source),
                     source.name,
                     lang::count(made.triangles),
                 );
@@ -661,7 +736,7 @@ impl PanelState {
             })
             .collect::<Vec<_>>();
         self.batch.handed += files.len();
-        let texture = crate::textures::name(&self.recipe.texture);
+        let texture = crate::textures::name(&self.layers[0].texture);
         let title = match &done[..] {
             [(i, _)] => format!("{} – {texture}", self.sources[*i].stem()),
             more => tf!("{} auf {} Modellen", "{} on {} models", texture, more.len()),
@@ -749,7 +824,7 @@ impl PanelState {
                 .into(),
             }),
             (Some(shown), Some(_)) => {
-                let stamping = self.tool == Tool::Off && self.recipe.mapping == MappingChoice::Stamp;
+                let stamping = self.tool == Tool::Off && self.recipe().mapping == MappingChoice::Stamp;
                 let tint = Some(if self.include { INCLUDED } else { LEFT_OUT }.to_owned());
                 let paint = match self.tool {
                     Tool::Fill => Some(MeshPaint { tool: PaintTool::Click, tint, ..MeshPaint::default() }),
@@ -884,7 +959,7 @@ impl PanelState {
                 "Ziehen malt, Umschalt beim Drücken radiert Pinselstriche. Orange bekommt keine Textur. Rechte Taste dreht, mittlere verschiebt, das Rad zoomt.",
                 "Dragging paints, Shift at the press erases brush strokes. Orange gets no texture. The right button turns, the middle one moves, the wheel zooms.",
             ),
-            Tool::Off if self.recipe.mapping == MappingChoice::Stamp => tr(
+            Tool::Off if self.recipe().mapping == MappingChoice::Stamp => tr(
                 "Ein Klick aufs Modell setzt den Stempel dorthin. Die Kachelgröße ist seine Breite, die Drehung dreht ihn.",
                 "A click on the model puts the stamp there. The tile size is its width, the rotation turns it.",
             ),
@@ -897,7 +972,7 @@ impl PanelState {
     }
 
     fn settings_part(&self) -> Node {
-        let r = &self.recipe;
+        let r = self.recipe();
         let row = |label: &str, node: Node| FormRow { label: label.into(), node };
         let mut children = vec![Node::heading(tr("Modelle", "Models"))];
         if !self.sources.is_empty() {
@@ -970,6 +1045,50 @@ impl PanelState {
                 enabled: true,
             }));
             children.push(Node::Group { title: Some(tr("Teile", "Parts").into()), collapsible: true, children: boxes });
+        }
+
+        children.push(Node::Separator);
+        children.push(Node::heading(tr("Ebenen", "Layers")));
+        let active = self.active.min(self.layers.len() - 1);
+        children.push(Node::Radio {
+            id: "layer".into(),
+            options: self
+                .layers
+                .iter()
+                .enumerate()
+                .map(|(i, layer)| Choice {
+                    value: i.to_string(),
+                    label: format!("{} · {}", i + 1, crate::textures::name(&layer.texture)),
+                })
+                .collect(),
+            selected: active.to_string(),
+        });
+        children.push(Node::row(vec![
+            Node::Button {
+                id: "add_layer".into(),
+                label: tr("＋ Ebene", "＋ Layer").into(),
+                primary: false,
+                enabled: self.layers.len() < 4,
+            },
+            Node::Button {
+                id: "remove_layer".into(),
+                label: tr("Ebene entfernen", "Remove layer").into(),
+                primary: false,
+                enabled: self.layers.len() > 1,
+            },
+        ]));
+        if active > 0 {
+            children.push(Node::Radio {
+                id: "layer_blend".into(),
+                options: vec![
+                    Choice {
+                        value: "cover".into(),
+                        label: tr("verdeckt die Ebenen darunter", "covers the layers below").into(),
+                    },
+                    Choice { value: "add".into(), label: tr("kommt zu ihnen dazu", "is added to them").into() },
+                ],
+                selected: if r.add { "add" } else { "cover" }.into(),
+            });
         }
 
         children.push(Node::Separator);
@@ -1082,6 +1201,16 @@ impl PanelState {
             options: choices(&Place::ALL, Place::id, Place::label),
             selected: r.place.id().into(),
         });
+        children.push(Node::Checkbox {
+            id: "only_marked".into(),
+            label: tr(
+                "Nur auf Flächen, die ich markiere (Werkzeuge unter der Vorschau)",
+                "Only on surfaces I mark (tools below the preview)",
+            )
+            .into(),
+            checked: r.only_marked,
+            enabled: true,
+        });
         if r.place != Place::All {
             children.push(Node::Label {
                 text: tr(
@@ -1173,6 +1302,13 @@ impl PanelState {
 impl GuestPanel for TexturePanel {
     fn new(_id: String, state: Option<String>) -> TexturePanel {
         let mut state: PanelState = state.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        if state.layers.is_empty() {
+            state.layers.push(Recipe::default());
+        }
+        state.active = state.active.min(state.layers.len() - 1);
+        if state.hardness <= 0.0 && state.brush <= 0.0 {
+            (state.brush, state.hardness) = (3.0, 50.0);
+        }
         state.host_changed(&guest::info());
         TexturePanel { state: RefCell::new(state) }
     }

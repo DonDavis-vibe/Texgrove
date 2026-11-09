@@ -115,9 +115,32 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       der Textur und in der Notiz der Datei (CC BY verlangt Namensnennung), README-Credits
 - [x] Weggelassen: Jeans, Fischgrät, Strick (zu wenig Relief bzw. nur Falten)
 - [ ] Favoriten (Stern)
-## M6 Plugin-API 0.2 Teil 2 (Malen, Overlay, Performance)
+## M6 Plugin-API 0.2 Teil 2 (Malen, Overlay, Performance) – Host-Session
+- [x] Auftrag an die Host-Session (09.11.); zwei Commits (BVH, Farben je Dreieck), Rest in Arbeit:
+      `MeshView.paint`/`overlay`, `MeshPick`/`MeshStroke`, Malmodus im Viewer, PreparedMesh
+- [ ] Ergebnis nachprüfen (Tests, Diff), API-Schnappschuss in `target/host` auffrischen
+- [ ] Malen in der Testsitzung klicken (`target/host/setup-env.sh`, `shot.sh`)
+
 ## M7 Masken und Ebenen
+- [x] Kern: `mask::Op` (Fläche füllen per Punkt + Normale, Pinsel-Tupfer, Leeren) – gilt für jede
+      Netzauflösung; Radieren einer Fläche nimmt auch automatische Marken (innen/außen) zurück;
+      `Mask::only_picked` (Ebene startet leer); `Textured.left_out`
+- [x] Plugin: Werkzeuge unter der Vorschau (Drehen / Fläche markieren / Pinsel; keine Textur / nur
+      hier Textur; Radius, Härte; Rückgängig, Wiederholen, Alle löschen), Overlay „orange = keine
+      Textur“ aus dem Vorschau-Job, Striche je Modell und Ebene, bei Projekten in Teil-Koordinaten
+- [x] Stempel: „Auftragen: Stempel“, Klick setzt ihn (schnappt auf die echte Oberfläche)
+- [x] Ebenen (bis 4): Liste, ＋ Ebene (startet leer, Werkzeug „Fläche markieren – nur hier“),
+      entfernen, verdecken/addieren; Qualität und Format gelten für alle
+- [x] Über Jobs geprüft: Fläche + Pinsel ausgespart, Stempel, zwei Ebenen (`out/zwei-ebenen.png`);
+      Ebenen-Bedienung in der Testsitzung geklickt (`out/panel-ebenen.png`)
+- [ ] Malen/Klicken im 3D-Fenster selbst: wartet auf M6
+- [ ] „Auf Fläche legen“ (Modell auf eine Fläche drehen), Präzisions-Pinsel auf groben Netzen
+
 ## M8 Erweiterte Projektionen
+- [x] Box mit weichen Kanten, Zylinder/Umriss mit weichem Deckelübergang, Umriss, Stempel,
+      Flip-Schutz, Tiefenwarnung; im Panel geklickt (Umriss am Kasten)
+- [ ] Diagnose-Anzeige (offene Kanten, Teile) im Panel
+
 ## M9 KI-Werkzeuge
 ## M10 Fertigstellen
 - [ ] Grafiken (Krea 2 Turbo über ComfyUI), README, CHANGELOG, CI/Release

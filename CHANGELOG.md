@@ -14,6 +14,13 @@ The mesh kernel, and the first Meshgrove panel.
 - **Slicer projects**: a 3MF with several objects lists them; only the ticked ones get the
   texture, and Meshgrove swaps just those into a copy of the project, so plates, profiles and the
   other objects stay as they were.
+- **Marks by hand**: tools below the preview mark whole surfaces with a click or places with a
+  brush, as "no texture" or "texture only here", with undo and redo; what gets no texture shows
+  in orange. (Needs Meshgrove 0.9.0's painting in the 3D view.)
+- **Layers**: up to four textures on one model, each with its own settings and marks, covering
+  or adding to those below; a new layer starts empty and goes where you mark.
+- **Stamp, outline, soft seams**: a texture once where you click; wrapped along the part's
+  outline; box and cylinder blend at their edges.
 - **Textures that ship**: twelve nature and material maps from Poly Haven (bark, wood, leather,
   rock, cobblestones, brick, slate, corrugated iron, gravel, rust, metal plate) and 32 patterns
   from Hero Patterns, in gallery groups, each with its credit.
