@@ -6,7 +6,7 @@ use texgrove_core::Mesh;
 use texgrove_core::bvh::Bvh;
 use texgrove_core::displace::Relief;
 use texgrove_core::heightmap::Heightmap;
-use texgrove_core::mask::{EXCLUDED, Mask};
+use texgrove_core::mask::{EXCLUDED, Mask, Op};
 use texgrove_core::pattern::Pattern;
 use texgrove_core::pipeline::{Finish, Settings};
 use texgrove_core::project::{Mapping, Placement};
@@ -15,6 +15,7 @@ use texgrove_core::select;
 use texgrove_core::topology::Topology;
 
 use crate::lang::tr;
+use crate::work::Part;
 
 /// How a texture goes onto a model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,6 +36,8 @@ pub struct Recipe {
     pub rotation: f32,
     /// How soft seams and the way to a cap are, in percent.
     pub blend: f32,
+    /// Where the stamp sits, in the coordinates of the model as shown.
+    pub stamp: Option<StampAt>,
     pub place: Place,
     /// Faces looking down within this many degrees stay smooth.
     pub bottom: f32,
@@ -56,6 +59,7 @@ impl Default for Recipe {
             invert: false,
             rotation: 0.0,
             blend: 20.0,
+            stamp: None,
             place: Place::All,
             bottom: 5.0,
             top: 0.0,
@@ -63,6 +67,20 @@ impl Default for Recipe {
             format: Format::ThreeMf,
         }
     }
+}
+
+/// Where a stamp was put: a point on the model and the way the surface faces there.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct StampAt {
+    pub centre: [f32; 3],
+    pub normal: [f32; 3],
+}
+
+/// What a model brings to a recipe: the user's strokes on it, already in its own coordinates,
+/// and, for an object of a project, where that object stands.
+pub struct On<'a> {
+    pub ops: &'a [Op],
+    pub part: Option<&'a Part>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -74,13 +92,14 @@ pub enum MappingChoice {
     Cylindrical,
     Outline,
     Spherical,
+    Stamp,
     Xy,
     Xz,
     Yz,
 }
 
 impl MappingChoice {
-    pub const ALL: [MappingChoice; 8] = [
+    pub const ALL: [MappingChoice; 9] = [
         MappingChoice::Triplanar,
         MappingChoice::Cubic,
         MappingChoice::Cylindrical,
@@ -89,6 +108,7 @@ impl MappingChoice {
         MappingChoice::Xy,
         MappingChoice::Xz,
         MappingChoice::Yz,
+        MappingChoice::Stamp,
     ];
 
     pub fn id(self) -> &'static str {
@@ -101,6 +121,7 @@ impl MappingChoice {
             MappingChoice::Xy => "xy",
             MappingChoice::Xz => "xz",
             MappingChoice::Yz => "yz",
+            MappingChoice::Stamp => "stamp",
         }
     }
 
@@ -114,6 +135,7 @@ impl MappingChoice {
             MappingChoice::Xy => tr("Von oben", "From above"),
             MappingChoice::Xz => tr("Von vorn", "From the front"),
             MappingChoice::Yz => tr("Von der Seite", "From the side"),
+            MappingChoice::Stamp => tr("Stempel (einmal, per Klick setzen)", "Stamp (once, placed by a click)"),
         }
     }
 
@@ -126,8 +148,10 @@ impl MappingChoice {
         matches!(self, MappingChoice::Cubic | MappingChoice::Cylindrical | MappingChoice::Outline)
     }
 
-    /// The kernel's mapping; `blend` (0 to 1) softens seams and the way from side to cap.
-    fn mapping(self, blend: f32) -> Mapping {
+    /// The kernel's mapping; `blend` (0 to 1) softens seams and the way from side to cap, and
+    /// `stamp` is where a stamp sits (its centre and the way it faces). A stamp not placed yet
+    /// lands nowhere.
+    fn mapping(self, blend: f32, stamp: Option<([f32; 3], [f32; 3])>) -> Mapping {
         let blend = blend.clamp(0.0, 1.0);
         match self {
             MappingChoice::Triplanar => Mapping::default(),
@@ -138,6 +162,10 @@ impl MappingChoice {
             MappingChoice::Xy => Mapping::PlanarXY,
             MappingChoice::Xz => Mapping::PlanarXZ,
             MappingChoice::Yz => Mapping::PlanarYZ,
+            MappingChoice::Stamp => {
+                let (centre, normal) = stamp.unwrap_or(([1e9; 3], [0.0, 0.0, 1.0]));
+                Mapping::Stamp { centre, normal }
+            }
         }
     }
 }
@@ -319,42 +347,60 @@ impl Recipe {
         Relief { depth: self.depth.max(0.0), midlevel, invert: self.invert }
     }
 
-    /// Where on `source` (a welded mesh) the texture goes.
-    pub fn mask(&self, source: &Mesh) -> Mask {
+    /// Where on `source` (a welded mesh) the texture goes: what the settings say, then the
+    /// user's strokes on top.
+    pub fn mask(&self, source: &Mesh, on: &On) -> Mask {
         let mut mask = Mask { bottom_degrees: self.bottom, top_degrees: self.top, ..Mask::default() };
         if self.place != Place::All {
             let inside = select::inside(source, &Topology::build(source), &Bvh::build(source), 30.0);
             let wanted = self.place == Place::Inside;
             mask.faces = inside.iter().map(|inside| if *inside == wanted { 0 } else { EXCLUDED }).collect();
         }
+        // A click on the textured preview lies off the model's own surface by the relief at most.
+        mask.apply_ops(source, on.ops, self.depth.max(0.0) + 1.0);
         mask
     }
 
     /// The kernel's settings for the file to keep: the quality's fineness for this nozzle.
-    pub fn settings(&self, source: &Mesh, nozzle: f32, map: &Heightmap) -> Settings {
+    pub fn settings(&self, source: &Mesh, nozzle: f32, map: &Heightmap, on: &On) -> Settings {
         let finish = quality::finish(self.quality.quality(), self.feature(map), nozzle);
-        self.with_finish(source, finish)
+        self.with_finish(source, finish, on)
     }
 
     /// The kernel's settings for a quick look: at most about `budget` triangles, nothing reduced.
-    pub fn preview_settings(&self, source: &Mesh, nozzle: f32, budget: usize, map: &Heightmap) -> Settings {
+    pub fn preview_settings(&self, source: &Mesh, nozzle: f32, budget: usize, map: &Heightmap, on: &On) -> Settings {
         let draft = quality::finish(Quality::Draft, self.feature(map), nozzle);
         let finish = Finish { max_triangles: budget, triangles: usize::MAX, tolerance: 0.0, ..draft };
-        self.with_finish(source, finish)
+        self.with_finish(source, finish, on)
     }
 
-    fn with_finish(&self, source: &Mesh, finish: Finish) -> Settings {
+    fn with_finish(&self, source: &Mesh, finish: Finish, on: &On) -> Settings {
+        let stamp = self.stamp.filter(|_| self.mapping == MappingChoice::Stamp).map(|at| {
+            let (centre, normal) = match on.part {
+                Some(part) => (part.to_local(at.centre), part.dir_to_local(at.normal)),
+                None => (at.centre, at.normal),
+            };
+            // The click hit the textured preview: its relief tilts the face that was hit and
+            // lifts the point. The model's own surface there says how the stamp sits.
+            match Bvh::build(source).closest(source, centre) {
+                Some((triangle, point, distance)) if distance <= self.depth.max(0.0) + 1.0 => {
+                    let facing = texgrove_core::normals::face_normal(source, triangle as usize);
+                    (point, if texgrove_core::vec::dot(facing, normal) > 0.2 { facing } else { normal })
+                }
+                _ => (centre, normal),
+            }
+        });
         Settings {
-            mapping: self.mapping.mapping(self.blend / 100.0),
+            mapping: self.mapping.mapping(self.blend / 100.0, stamp),
             placement: Placement { tile: self.tile.max(0.1), rotation: self.rotation, ..Placement::default() },
             relief: self.relief(),
-            mask: self.mask(source),
+            mask: self.mask(source, on),
             finish,
         }
     }
 
     /// What the settings were, in words, for the note on the file.
-    pub fn describe(&self) -> String {
+    pub fn describe(&self, on_strokes: usize) -> String {
         use crate::lang::number;
         let mut parts = vec![
             crate::textures::name(&self.texture),
@@ -378,6 +424,9 @@ impl Recipe {
         }
         if self.top > 0.0 {
             parts.push(crate::tf!("Oberseite frei ({}°)", "top left smooth ({}°)", number(self.top, 0)));
+        }
+        if on_strokes > 0 {
+            parts.push(crate::tf!("{} Markierung(en) von Hand", "{} mark(s) by hand", on_strokes));
         }
         parts.push(crate::tf!("Qualität {}", "quality {}", self.quality.label()));
         if let Some(credit) = crate::textures::credit(&self.texture) {

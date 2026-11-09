@@ -8,10 +8,11 @@ use meshgrove_plugin_api::MeshData;
 use meshgrove_plugin_api::guest::{self, PluginError, library};
 use serde::{Deserialize, Serialize};
 use texgrove_core::export::{stl, threemf};
+use texgrove_core::mask::{Dab, DabKind, Op};
 use texgrove_core::pipeline::{self, Stage};
 use texgrove_core::{Mesh, weld};
 
-use crate::recipe::Recipe;
+use crate::recipe::{On, Recipe};
 
 /// Where previews are kept between a job and the panel.
 pub const PREVIEW_DIR: &str = "/data/preview";
@@ -35,7 +36,31 @@ pub struct Source {
     pub parts: Vec<Part>,
     /// The tokens of the parts to leave as they are.
     pub skipped: Vec<String>,
+    /// What the user painted on the model, stroke by stroke, in the coordinates of the model
+    /// as shown.
+    pub strokes: Vec<Stroke>,
 }
+
+/// What one press of the mouse did: a click on a face, or a line of brush dabs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Stroke {
+    pub ops: Vec<PaintOp>,
+}
+
+/// One mark of the user's on a model.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum PaintOp {
+    /// A click on a face: its whole smooth surface.
+    Fill { point: [f32; 3], normal: [f32; 3], include: bool, erase: bool },
+    /// A touch of the brush.
+    Dab { centre: [f32; 3], normal: [f32; 3], radius: f32, hardness: f32, include: bool, erase: bool },
+    /// Everything before is forgotten.
+    Clear,
+}
+
+/// Faces differing by no more than this many degrees count as one surface for a click.
+const FILL_DEGREES: f32 = 30.0;
 
 /// One object of a 3MF.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -50,6 +75,41 @@ pub struct Part {
 }
 
 impl Part {
+    /// The three axes and the shift of where the object stands; none when there is nothing to do.
+    fn frame(&self) -> Option<([[f32; 3]; 3], [f32; 3])> {
+        match self.transform[..] {
+            [xx, xy, xz, yx, yy, yz, zx, zy, zz, tx, ty, tz] => {
+                Some(([[xx, xy, xz], [yx, yy, yz], [zx, zy, zz]], [tx, ty, tz]))
+            }
+            _ => None,
+        }
+    }
+
+    /// A direction of the model as shown, in the object's own coordinates.
+    pub fn dir_to_local(&self, d: [f32; 3]) -> [f32; 3] {
+        use texgrove_core::vec::{cross, dot, normalize};
+        let Some(([x, y, z], _)) = self.frame() else { return d };
+        // The inverse of the matrix with columns x, y, z: its rows are the cross products of
+        // the others, over the determinant.
+        let det = dot(x, cross(y, z));
+        if det.abs() < 1e-12 {
+            return d;
+        }
+        normalize([dot(cross(y, z), d) / det, dot(cross(z, x), d) / det, dot(cross(x, y), d) / det])
+    }
+
+    /// A point of the model as shown, in the object's own coordinates.
+    pub fn to_local(&self, p: [f32; 3]) -> [f32; 3] {
+        use texgrove_core::vec::{cross, dot, sub};
+        let Some(([x, y, z], shift)) = self.frame() else { return p };
+        let det = dot(x, cross(y, z));
+        if det.abs() < 1e-12 {
+            return p;
+        }
+        let d = sub(p, shift);
+        [dot(cross(y, z), d) / det, dot(cross(z, x), d) / det, dot(cross(x, y), d) / det]
+    }
+
     /// The object's mesh moved to where it stands.
     fn placed(&self, mut mesh: Mesh) -> Mesh {
         if let [xx, xy, xz, yx, yy, yz, zx, zy, zz, tx, ty, tz] = self.transform[..] {
@@ -90,6 +150,31 @@ impl Source {
             .collect();
     }
 
+    /// The user's strokes for the kernel, in the coordinates of `part` (or the model's own).
+    pub fn ops(&self, part: Option<&Part>) -> Vec<Op> {
+        let point = |p: [f32; 3]| part.map_or(p, |part| part.to_local(p));
+        let dir = |d: [f32; 3]| part.map_or(d, |part| part.dir_to_local(d));
+        let kind = |include: bool| if include { DabKind::Include } else { DabKind::Exclude };
+        self.strokes
+            .iter()
+            .flat_map(|stroke| &stroke.ops)
+            .map(|op| match *op {
+                PaintOp::Clear => Op::Clear,
+                PaintOp::Fill { point: p, normal, include, erase } => {
+                    Op::Fill { point: point(p), normal: dir(normal), kind: kind(include), erase, degrees: FILL_DEGREES }
+                }
+                PaintOp::Dab { centre, normal, radius, hardness, include, erase } => Op::Dab(Dab {
+                    centre: point(centre),
+                    normal: dir(normal),
+                    radius,
+                    hardness,
+                    kind: kind(include),
+                    erase,
+                }),
+            })
+            .collect()
+    }
+
     /// The parts that get the texture.
     pub fn chosen(&self) -> impl Iterator<Item = &Part> {
         self.parts.iter().filter(|part| !self.skipped.contains(&part.token))
@@ -113,6 +198,9 @@ pub struct PreviewJob {
     /// The file names (below [`PREVIEW_DIR`]) to write the model as it is and as textured.
     pub plain: String,
     pub textured: String,
+    /// The file names for which triangles of each get no texture.
+    pub plain_marks: String,
+    pub textured_marks: String,
 }
 
 /// What an export job gets.
@@ -190,38 +278,54 @@ fn progress(stage: Stage, done: f32) -> bool {
     !guest::host::cancelled()
 }
 
-/// The preview: the model as it is and textured coarsely, written for the panel to show.
+/// The preview: the model as it is and textured coarsely, each with a list of the triangles
+/// that get no texture, written for the panel to show.
 pub fn preview(job: &PreviewJob) -> Result<serde_json::Value, PluginError> {
     guest::host::progress(0.0, crate::lang::tr("Modell laden", "Loading the model"));
-    let source = load(&job.source, PREVIEW_SOURCE)?;
     let _ = std::fs::create_dir_all(PREVIEW_DIR);
-    write_mesh(&format!("{PREVIEW_DIR}/{}", job.plain), &source)?;
     let map = job.recipe.map().map_err(PluginError::Failed)?;
     let mut warnings = Vec::new();
-    let textured = if job.source.parts.is_empty() {
-        let settings = job.recipe.preview_settings(&source, job.nozzle, PREVIEW_TRIANGLES, &map);
-        let done = pipeline::texture_with(&source, &map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
-        warnings.extend(done.warnings.iter().map(warning_text));
-        done.mesh
-    } else {
-        // Each object on its own, in its own coordinates as the file to keep will have it, then
-        // put where it stands.
-        let mut whole = Mesh::default();
-        let budget = PREVIEW_TRIANGLES / job.source.parts.len().max(1);
-        for part in &job.source.parts {
-            let mesh = load_part(&job.source, part, PREVIEW_SOURCE / job.source.parts.len().max(1) as u32)?;
-            let mesh = if job.source.skipped.contains(&part.token) {
-                mesh
-            } else {
-                let settings = job.recipe.preview_settings(&mesh, job.nozzle, budget, &map);
-                pipeline::texture_with(&mesh, &map, &settings, &mut progress).ok_or(PluginError::Cancelled)?.mesh
-            };
-            whole.append(&part.placed(mesh));
+    let (mut plain, mut plain_out) = (Mesh::default(), Vec::new());
+    let (mut textured, mut textured_out) = (Mesh::default(), Vec::new());
+    // A model is one mesh; a project is its objects, each textured in its own coordinates, as
+    // the file to keep will have it, and then put where it stands.
+    let whole = [None];
+    let parts: Vec<Option<&Part>> = job.source.parts.iter().map(Some).collect();
+    let pieces: &[Option<&Part>] = if parts.is_empty() { &whole } else { &parts };
+    for piece in pieces {
+        let (mesh, skipped) = match piece {
+            None => (load(&job.source, PREVIEW_SOURCE)?, false),
+            Some(part) => (
+                load_part(&job.source, part, PREVIEW_SOURCE / pieces.len() as u32)?,
+                job.source.skipped.contains(&part.token),
+            ),
+        };
+        let place = |mesh: Mesh| match piece {
+            Some(part) => part.placed(mesh),
+            None => mesh,
+        };
+        if skipped {
+            plain_out.extend(std::iter::repeat_n(true, mesh.triangles.len()));
+            textured_out.extend(std::iter::repeat_n(true, mesh.triangles.len()));
+            plain.append(&place(mesh.clone()));
+            textured.append(&place(mesh));
+            continue;
         }
-        whole
-    };
+        let ops = job.source.ops(*piece);
+        let on = On { ops: &ops, part: *piece };
+        let settings = job.recipe.preview_settings(&mesh, job.nozzle, PREVIEW_TRIANGLES / pieces.len(), &map, &on);
+        plain_out.extend(settings.mask.active(&mesh).iter().map(|active| !active));
+        let done = pipeline::texture_with(&mesh, &map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
+        warnings.extend(done.warnings.iter().map(warning_text));
+        plain.append(&place(mesh));
+        textured_out.extend(&done.left_out);
+        textured.append(&place(done.mesh));
+    }
+    write_mesh(&format!("{PREVIEW_DIR}/{}", job.plain), &plain)?;
+    write_marks(&format!("{PREVIEW_DIR}/{}", job.plain_marks), &plain_out)?;
     write_mesh(&format!("{PREVIEW_DIR}/{}", job.textured), &textured)?;
-    prune(PREVIEW_DIR, 12);
+    write_marks(&format!("{PREVIEW_DIR}/{}", job.textured_marks), &textured_out)?;
+    prune(PREVIEW_DIR, 24);
     Ok(serde_json::json!({"triangles": textured.triangles.len(), "warnings": warnings}))
 }
 
@@ -241,7 +345,8 @@ pub fn export(job: &ExportJob) -> Result<Exported, PluginError> {
         return export_parts(job, &map);
     }
     let source = load(&job.source, EXPORT_SOURCE)?;
-    let settings = job.recipe.settings(&source, job.nozzle, &map);
+    let ops = job.source.ops(None);
+    let settings = job.recipe.settings(&source, job.nozzle, &map, &On { ops: &ops, part: None });
     let textured = pipeline::texture_with(&source, &map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
     guest::host::progress(0.95, crate::lang::tr("Datei schreiben", "Writing the file"));
     write_file(job, &textured.mesh)?;
@@ -279,7 +384,8 @@ fn export_parts(job: &ExportJob, map: &texgrove_core::heightmap::Heightmap) -> R
     for (i, part) in parts.iter().enumerate() {
         let mesh = std::mem::take(&mut meshes[i]);
         let mesh = if chosen.contains(part) {
-            let mut settings = job.recipe.settings(&mesh, job.nozzle, map);
+            let ops = job.source.ops(Some(part));
+            let mut settings = job.recipe.settings(&mesh, job.nozzle, map, &On { ops: &ops, part: Some(part) });
             let share = areas[i].max(0.0) / textured_area;
             settings.finish.triangles = ((settings.finish.triangles as f64 * share) as usize).max(20_000);
             let done = pipeline::texture_with(&mesh, map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
@@ -334,6 +440,26 @@ fn write_mesh(path: &str, mesh: &Mesh) -> Result<(), PluginError> {
         bytes.extend(v.to_le_bytes());
     }
     std::fs::write(path, bytes).map_err(|e| failed(path, e))
+}
+
+/// Which triangles get no texture, as the 3D view takes an overlay: a count, then a class per
+/// triangle (1 for left out, 0 for textured).
+fn write_marks(path: &str, left_out: &[bool]) -> Result<(), PluginError> {
+    let mut bytes = Vec::with_capacity(4 + left_out.len() * 4);
+    bytes.extend((left_out.len() as u32).to_le_bytes());
+    for out in left_out {
+        bytes.extend(u32::from(*out).to_le_bytes());
+    }
+    std::fs::write(path, bytes).map_err(|e| failed(path, e))
+}
+
+/// The classes [`write_marks`] wrote, as an overlay: no positions, a class per triangle.
+pub fn read_marks(path: &str) -> Option<MeshData> {
+    let bytes = std::fs::read(path).ok()?;
+    let count = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?) as usize;
+    let (classes, rest) = bytes[4..].as_chunks::<4>();
+    (classes.len() == count && rest.is_empty())
+        .then(|| MeshData { positions: Vec::new(), indices: classes.iter().map(|b| u32::from_le_bytes(*b)).collect() })
 }
 
 /// A mesh [`write_mesh`] wrote, as the 3D view wants it.

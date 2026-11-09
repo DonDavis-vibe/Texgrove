@@ -5,15 +5,16 @@ use std::cell::RefCell;
 
 use meshgrove_plugin_api::guest::{self, GuestPanel, MeshData, library};
 use meshgrove_plugin_api::ui::{
-    Choice, Effect, Event, FormRow, JobSpec, Level, Node, TableColumn, TableRow, TextStyle, Unit, View,
+    Choice, Effect, Event, FormRow, JobSpec, Level, MeshOverlay, MeshPaint, Node, PaintTool, StrokePhase, TableColumn,
+    TableRow, TextStyle, Unit, View,
 };
 use meshgrove_plugin_api::{Bundle, BundleFile, Derive3mf, HostInfo, PartMesh};
 use serde::{Deserialize, Serialize};
 
 use crate::lang::{self, tr};
-use crate::recipe::{Format, MappingChoice, Place, QualityChoice, Recipe, ReliefChoice};
+use crate::recipe::{Format, MappingChoice, Place, QualityChoice, Recipe, ReliefChoice, StampAt};
 use crate::tf;
-use crate::work::{self, ExportJob, Exported, PreviewJob, Source};
+use crate::work::{self, ExportJob, Exported, PaintOp, PreviewJob, Source, Stroke};
 
 /// What the panel holds. What is not marked to be skipped comes back after a restart.
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -27,6 +28,19 @@ pub struct PanelState {
     pub plain: bool,
     /// The gallery group shown.
     pub group: String,
+    /// What the left mouse button does in the 3D view.
+    pub tool: Tool,
+    /// Whether marks say "texture only here" instead of "no texture here".
+    pub include: bool,
+    /// The brush's radius in mm and how much of it marks fully, in percent.
+    pub brush: f32,
+    pub hardness: f32,
+    /// Strokes taken back, newest last, for "redo".
+    #[serde(skip)]
+    undone: Vec<Stroke>,
+    /// The brush stroke being drawn.
+    #[serde(skip)]
+    stroke: Vec<PaintOp>,
     /// What the user typed into the search field, and what it found.
     pub search: String,
     #[serde(skip)]
@@ -41,12 +55,34 @@ pub struct PanelState {
     host: Host,
 }
 
+/// What the left mouse button does in the 3D view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tool {
+    /// Turns the model, as everywhere in Meshgrove.
+    #[default]
+    Off,
+    /// A click marks a whole smooth surface.
+    Fill,
+    /// Dragging marks what the brush touches.
+    Brush,
+}
+
+/// The colour of what gets no texture, and of fresh marks until the preview has caught up.
+const LEFT_OUT: &str = "#f0883e";
+const INCLUDED: &str = "#3fb950";
+
 /// What the 3D view shows and the preview being made.
 #[derive(Debug, Default)]
 struct ViewState {
     /// The preview file shown (below `/data/preview`), and how often it changed.
     shown: Option<String>,
     revision: u64,
+    /// The model it shows, by its reference.
+    shown_of: String,
+    /// The file saying which of its triangles get no texture, and how often that changed.
+    marks: Option<String>,
+    marks_revision: u64,
     /// The preview job running: its key, and how far it is.
     running: Option<(String, f32, String)>,
     /// Why the last preview failed.
@@ -160,6 +196,30 @@ impl TexturePanel {
                         s.plain = !s.plain;
                         changed = true;
                     }
+                    "undo" => {
+                        let at = s.selected;
+                        if let Some(stroke) = s.sources.get_mut(at).and_then(|source| source.strokes.pop()) {
+                            s.undone.push(stroke);
+                            changed = true;
+                        }
+                    }
+                    "redo" => {
+                        if let Some(stroke) = s.undone.pop() {
+                            let at = s.selected;
+                            if let Some(source) = s.sources.get_mut(at) {
+                                source.strokes.push(stroke);
+                                changed = true;
+                            }
+                        }
+                    }
+                    "clear_marks" => {
+                        s.add_stroke(vec![PaintOp::Clear]);
+                        changed = true;
+                    }
+                    "unstamp" => {
+                        s.recipe.stamp = None;
+                        changed = true;
+                    }
                     "apply" => effects.extend(s.start_batch()),
                     "cancel" => {
                         if let Some((i, ..)) = s.batch.current {
@@ -171,11 +231,41 @@ impl TexturePanel {
                     _ => {}
                 }
             }
+            Event::MeshPick { hit: Some(hit), shift, .. } => {
+                if s.tool == Tool::Fill {
+                    let include = s.include;
+                    s.add_stroke(vec![PaintOp::Fill { point: hit.point, normal: hit.normal, include, erase: shift }]);
+                    changed = true;
+                } else if s.tool == Tool::Off && s.recipe.mapping == MappingChoice::Stamp {
+                    s.recipe.stamp = Some(StampAt { centre: hit.point, normal: hit.normal });
+                    changed = true;
+                }
+            }
+            Event::MeshStroke { phase, erase, hits, .. } => {
+                if s.tool == Tool::Brush {
+                    let (radius, hardness, include) =
+                        (s.brush_radius(), s.hardness.clamp(0.0, 100.0) / 100.0, s.include);
+                    s.stroke.extend(hits.iter().map(|hit| PaintOp::Dab {
+                        centre: hit.point,
+                        normal: hit.normal,
+                        radius,
+                        hardness,
+                        include,
+                        erase,
+                    }));
+                    if phase == StrokePhase::End && !s.stroke.is_empty() {
+                        let ops = std::mem::take(&mut s.stroke);
+                        s.add_stroke(ops);
+                        changed = true;
+                    }
+                }
+            }
             Event::TableSelect { id, row: Some(row) } => match id.as_str() {
                 "sources" => {
                     if let Ok(i) = row.parse::<usize>()
                         && i < s.sources.len()
                     {
+                        s.undone.clear();
                         s.selected = i;
                         changed = true;
                     }
@@ -257,6 +347,23 @@ impl PanelState {
         }
     }
 
+    /// The brush's radius in mm, within what makes sense.
+    fn brush_radius(&self) -> f32 {
+        if self.brush > 0.0 { self.brush.clamp(0.2, 100.0) } else { 3.0 }
+    }
+
+    /// Adds what one press of the mouse did to the shown model; "redo" starts over.
+    fn add_stroke(&mut self, ops: Vec<PaintOp>) {
+        if let Some(source) = self.sources.get_mut(self.selected) {
+            // Far more marks than anyone paints by hand: the oldest go.
+            if source.strokes.len() >= 2000 {
+                source.strokes.remove(0);
+            }
+            source.strokes.push(Stroke { ops });
+            self.undone.clear();
+        }
+    }
+
     /// Takes a changed setting; whether the preview has to follow.
     fn change(&mut self, id: &str, value: &serde_json::Value) -> bool {
         if let Some(index) = id.strip_prefix("part:").and_then(|i| i.parse::<usize>().ok()) {
@@ -270,6 +377,30 @@ impl PanelState {
         }
         let number = value.as_f64().map(|v| v as f32).filter(|v| v.is_finite());
         let text = value.as_str().unwrap_or_default();
+        match (id, number) {
+            ("tool", _) => {
+                self.tool = match text {
+                    "fill" => Tool::Fill,
+                    "brush" => Tool::Brush,
+                    _ => Tool::Off,
+                };
+                self.stroke.clear();
+                return false;
+            }
+            ("effect", _) => {
+                self.include = text == "include";
+                return false;
+            }
+            ("brush", Some(v)) => {
+                self.brush = v.clamp(0.2, 100.0);
+                return false;
+            }
+            ("hardness", Some(v)) => {
+                self.hardness = v.clamp(0.0, 100.0);
+                return false;
+            }
+            _ => {}
+        }
         let r = &mut self.recipe;
         match (id, number) {
             ("tile", Some(v)) => r.tile = v.clamp(0.2, 200.0),
@@ -327,29 +458,39 @@ impl PanelState {
         let mut effects = Vec::new();
         let Some(source) = self.sources.get(self.selected).cloned() else {
             self.view.shown = None;
+            self.view.marks = None;
             return effects;
         };
         let plain = format!("p-{}", work::cache_key(&source.reference));
         let look = Recipe { quality: QualityChoice::Normal, format: Format::ThreeMf, ..self.recipe.clone() };
-        // The parts left out change the look as well.
+        // The parts left out and the strokes painted change the look as well.
         let key = work::cache_key(&(
             &source.reference,
             &source.skipped,
+            serde_json::to_string(&source.strokes).unwrap_or_default(),
             serde_json::to_string(&look).unwrap_or_default(),
             self.host.nozzle.to_bits(),
         ));
         let textured = format!("t-{key}");
-        let wanted = if self.plain { &plain } else { &textured };
-        if work::exists(&textured) && work::exists(&plain) {
+        let (plain_marks, textured_marks) = (format!("q-{key}"), format!("o-{key}"));
+        let ready = [&plain, &textured, &plain_marks, &textured_marks].iter().all(|file| work::exists(file));
+        if ready {
             if let Some((running, ..)) = self.view.running.take() {
                 effects.push(Effect::CancelJob { job: format!("preview:{running}") });
             }
-            self.show(wanted.clone());
+            let (file, marks) = if self.plain { (plain, plain_marks) } else { (textured, textured_marks) };
+            self.show(file, Some(marks), &source.reference);
             return effects;
         }
-        // Meanwhile the model as it is, if that is there.
-        if work::exists(&plain) {
-            self.show(plain.clone());
+        // Meanwhile what is shown stays, so the picture does not jump; a model not seen yet
+        // shows as it is, if that is there already.
+        if self.view.shown_of != source.reference {
+            if work::exists(&plain) {
+                self.show(plain.clone(), None, &source.reference);
+            } else {
+                self.view.shown = None;
+                self.view.marks = None;
+            }
         }
         if self.view.running.as_ref().is_some_and(|(running, ..)| *running == key) {
             return effects;
@@ -357,7 +498,8 @@ impl PanelState {
         if let Some((running, ..)) = self.view.running.take() {
             effects.push(Effect::CancelJob { job: format!("preview:{running}") });
         }
-        let job = PreviewJob { source, recipe: look, nozzle: self.host.nozzle, plain, textured };
+        let job =
+            PreviewJob { source, recipe: look, nozzle: self.host.nozzle, plain, textured, plain_marks, textured_marks };
         self.view.running = Some((key.clone(), 0.0, String::new()));
         self.view.failed = None;
         effects.push(Effect::StartJobs {
@@ -371,11 +513,16 @@ impl PanelState {
         effects
     }
 
-    fn show(&mut self, file: String) {
+    fn show(&mut self, file: String, marks: Option<String>, of: &str) {
         if self.view.shown.as_ref() != Some(&file) {
             self.view.shown = Some(file);
             self.view.revision += 1;
         }
+        if self.view.marks != marks {
+            self.view.marks = marks;
+            self.view.marks_revision += 1;
+        }
+        self.view.shown_of = of.to_owned();
     }
 
     fn preview_finished(&mut self, key: &str, result: Option<serde_json::Value>, error: Option<String>) {
@@ -491,7 +638,7 @@ impl PanelState {
                     "Texgrove {}: {}. Aus {}, {} Dreiecke.",
                     "Texgrove {}: {}. Made from {}, {} triangles.",
                     env!("CARGO_PKG_VERSION"),
-                    self.recipe.describe(),
+                    self.recipe.describe(source.strokes.len()),
                     source.name,
                     lang::count(made.triangles),
                 );
@@ -601,16 +748,34 @@ impl PanelState {
                 )
                 .into(),
             }),
-            (Some(shown), Some(_)) => children.push(Node::MeshView {
-                id: "view".into(),
-                key: shown.clone(),
-                revision: self.view.revision,
-                height: Some(460.0),
-                bed: self.host.bed,
-                frame: None,
-                paint: None,
-                overlay: None,
-            }),
+            (Some(shown), Some(_)) => {
+                let stamping = self.tool == Tool::Off && self.recipe.mapping == MappingChoice::Stamp;
+                let tint = Some(if self.include { INCLUDED } else { LEFT_OUT }.to_owned());
+                let paint = match self.tool {
+                    Tool::Fill => Some(MeshPaint { tool: PaintTool::Click, tint, ..MeshPaint::default() }),
+                    Tool::Brush => {
+                        Some(MeshPaint { tool: PaintTool::Brush, radius_mm: self.brush_radius(), tint, erase_tint: None })
+                    }
+                    Tool::Off if stamping => Some(MeshPaint { tool: PaintTool::Click, ..MeshPaint::default() }),
+                    Tool::Off => None,
+                };
+                // While a tool is in hand, what gets no texture shows in colour.
+                let overlay = self.view.marks.as_ref().filter(|_| self.tool != Tool::Off).map(|marks| MeshOverlay {
+                    key: marks.clone(),
+                    revision: self.view.marks_revision,
+                    palette: vec!["#00000000".into(), format!("{LEFT_OUT}b0")],
+                });
+                children.push(Node::MeshView {
+                    id: "view".into(),
+                    key: shown.clone(),
+                    revision: self.view.revision,
+                    height: Some(460.0),
+                    bed: self.host.bed,
+                    frame: None,
+                    paint,
+                    overlay,
+                });
+            }
             (None, Some(_)) => children.push(Node::Progress { fraction: None, text: Some(tr("Modell wird geladen …", "Loading the model …").into()) }),
         }
         if let Some((_, fraction, message)) = &self.view.running {
@@ -643,7 +808,92 @@ impl PanelState {
                 },
             ]));
         }
+        if !self.sources.is_empty() {
+            children.extend(self.tools());
+        }
         Node::column(children)
+    }
+
+    /// The tools for saying by hand where the texture goes.
+    fn tools(&self) -> Vec<Node> {
+        let strokes = self.sources.get(self.selected).map_or(0, |source| source.strokes.len());
+        let choice = |value: &str, label: &str| Choice { value: value.into(), label: label.into() };
+        let mut nodes = vec![Node::Separator];
+        let mut first = vec![
+            Node::Label { text: tr("Linke Maustaste:", "Left mouse button:").into(), style: TextStyle::Strong },
+            Node::Radio {
+                id: "tool".into(),
+                options: vec![
+                    choice("off", tr("Drehen", "Turn")),
+                    choice("fill", tr("Fläche markieren", "Mark a surface")),
+                    choice("brush", tr("Pinsel", "Brush")),
+                ],
+                selected: match self.tool {
+                    Tool::Off => "off",
+                    Tool::Fill => "fill",
+                    Tool::Brush => "brush",
+                }
+                .into(),
+            },
+        ];
+        if self.tool != Tool::Off {
+            first.push(Node::Radio {
+                id: "effect".into(),
+                options: vec![
+                    choice("exclude", tr("keine Textur", "no texture")),
+                    choice("include", tr("nur hier Textur", "texture only here")),
+                ],
+                selected: if self.include { "include" } else { "exclude" }.into(),
+            });
+        }
+        nodes.push(Node::row(first));
+        let mut second = Vec::new();
+        if self.tool == Tool::Brush {
+            second.push(Node::Label { text: tr("Radius", "Radius").into(), style: TextStyle::Body });
+            second.push(number("brush", self.brush_radius(), 0.2, 100.0, 0.5, Unit::Mm, 1));
+            second.push(Node::Label { text: tr("Härte", "Hardness").into(), style: TextStyle::Body });
+            second.push(number("hardness", self.hardness, 0.0, 100.0, 10.0, Unit::Percent, 0));
+        }
+        second.extend([
+            Node::Button {
+                id: "undo".into(),
+                label: tr("Rückgängig", "Undo").into(),
+                primary: false,
+                enabled: strokes > 0,
+            },
+            Node::Button {
+                id: "redo".into(),
+                label: tr("Wiederholen", "Redo").into(),
+                primary: false,
+                enabled: !self.undone.is_empty(),
+            },
+            Node::Button {
+                id: "clear_marks".into(),
+                label: tr("Alle Markierungen löschen", "Clear all marks").into(),
+                primary: false,
+                enabled: strokes > 0,
+            },
+        ]);
+        nodes.push(Node::row(second));
+        let hint = match self.tool {
+            Tool::Fill => tr(
+                "Ein Klick markiert eine ganze glatte Fläche bis zur nächsten scharfen Kante. Umschalt+Klick nimmt die Markierung zurück, auch eine automatische (innen/außen). Orange bekommt keine Textur. Rechte Taste dreht.",
+                "A click marks a whole smooth surface up to the next sharp edge. Shift+click takes the mark back, also one set by itself (inside/outside). Orange gets no texture. The right button turns.",
+            ),
+            Tool::Brush => tr(
+                "Ziehen malt, Umschalt beim Drücken radiert Pinselstriche. Orange bekommt keine Textur. Rechte Taste dreht, mittlere verschiebt, das Rad zoomt.",
+                "Dragging paints, Shift at the press erases brush strokes. Orange gets no texture. The right button turns, the middle one moves, the wheel zooms.",
+            ),
+            Tool::Off if self.recipe.mapping == MappingChoice::Stamp => tr(
+                "Ein Klick aufs Modell setzt den Stempel dorthin. Die Kachelgröße ist seine Breite, die Drehung dreht ihn.",
+                "A click on the model puts the stamp there. The tile size is its width, the rotation turns it.",
+            ),
+            Tool::Off => "",
+        };
+        if !hint.is_empty() {
+            nodes.push(Node::Label { text: hint.into(), style: TextStyle::Small });
+        }
+        nodes
     }
 
     fn settings_part(&self) -> Node {
@@ -941,7 +1191,10 @@ impl GuestPanel for TexturePanel {
         if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
             return None;
         }
-        work::read_mesh(&format!("{}/{key}", work::PREVIEW_DIR)).map(Into::into)
+        let path = format!("{}/{key}", work::PREVIEW_DIR);
+        // Names starting with o or q are lists of triangles without texture, for the overlay.
+        let data = if key.starts_with(['o', 'q']) { work::read_marks(&path) } else { work::read_mesh(&path) };
+        data.map(Into::into)
     }
 
     fn snapshot(&self) -> String {

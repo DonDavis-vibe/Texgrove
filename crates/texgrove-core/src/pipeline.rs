@@ -84,6 +84,9 @@ pub struct Textured {
     pub refined_triangles: usize,
     /// What the user should know about the result.
     pub warnings: Vec<Warning>,
+    /// For every triangle whether it got no texture at all (left out by a mask, or beyond a
+    /// stamp): to show where the texture goes.
+    pub left_out: Vec<bool>,
 }
 
 /// Something about a result worth a look before printing.
@@ -167,6 +170,8 @@ pub fn texture_layers(
     let stamps = layers.iter().any(|layer| matches!(layer.mapping, Mapping::Stamp { .. }));
     let bvh = (stamps || layers.iter().any(|layer| !layer.mask.dabs.is_empty())).then(|| Bvh::build(&mesh));
     let mut offsets = vec![0.0f32; mesh.positions.len()];
+    // The most any layer puts on each vertex.
+    let mut covered = vec![0.0f32; mesh.positions.len()];
     for (i, layer) in layers.iter().enumerate() {
         if !go_on(Stage::Move, i as f32 / layers.len() as f32) {
             return None;
@@ -189,6 +194,9 @@ pub fn texture_layers(
                 }
             }
         }
+        for (most, weight) in covered.iter_mut().zip(&weights) {
+            *most = most.max(*weight);
+        }
         let coat = Coat { projector: &projector, map: layer.map, relief: &layer.relief, blend: layer.blend };
         lay_on(&mut offsets, &mesh, &normals, Some(&weights), &coat);
     }
@@ -203,7 +211,18 @@ pub fn texture_layers(
     if flattened > 0 {
         warnings.push(Warning::Flattened { triangles: flattened });
     }
-    drop((normals, offsets, held, bvh));
+    let mut left_out: Vec<bool> = mesh
+        .triangles
+        .iter()
+        .enumerate()
+        .map(|(t, corners)| {
+            // A triangle whose corners all sit on held edges moves nothing either way: it goes
+            // with the face it is a piece of.
+            let all_held = held.as_ref().is_some_and(|held| corners.iter().all(|&v| held[v as usize]));
+            !any[parent[t] as usize] || (!all_held && corners.iter().all(|&v| covered[v as usize] <= 0.0))
+        })
+        .collect();
+    drop((normals, offsets, held, bvh, covered));
     let refined_triangles = mesh.triangles.len();
     if !go_on(Stage::Reduce, 0.0) {
         return None;
@@ -215,9 +234,10 @@ pub fn texture_layers(
             return None;
         }
         parent = reduced.source_triangle.iter().map(|&t| parent[t as usize]).collect();
+        left_out = reduced.source_triangle.iter().map(|&t| left_out[t as usize]).collect();
         mesh = reduced.mesh;
     }
-    Some(Textured { mesh, parent, edge, capped: refined.capped, refined_triangles, warnings })
+    Some(Textured { mesh, parent, edge, capped: refined.capped, refined_triangles, warnings, left_out })
 }
 
 /// Moves the vertices by their offsets, but where a triangle would turn over (the relief steeper
@@ -388,6 +408,11 @@ mod tests {
         let textured = texture(&cube, &map, &flat);
         let report = diagnose(&textured.mesh);
         assert!(report.sound(), "{report:?}");
+        // The triangles of the bottom, and only they, are told apart as left out.
+        assert_eq!(textured.left_out.len(), textured.mesh.triangles.len());
+        for (t, out) in textured.left_out.iter().enumerate() {
+            assert_eq!(*out, textured.parent[t] < 2, "triangle {t} of source {}", textured.parent[t]);
+        }
         // Nothing reaches below the bed, and the foot is the full square it was.
         assert_eq!(report.bounds.min[2], 0.0);
         let on_bed: Vec<_> = textured.mesh.positions.iter().filter(|p| p[2] == 0.0).collect();

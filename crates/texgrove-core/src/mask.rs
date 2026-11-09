@@ -60,7 +60,70 @@ pub struct Mask {
     pub dabs: Vec<Dab>,
 }
 
+/// Something the user did to say where a texture goes, kept as geometry: a point on the model,
+/// not the number of a triangle. So it means the same on the coarse copy shown while working and
+/// on the fine one the file is made from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Op {
+    /// A click on a face: the whole smooth surface round it, up to edges sharper than `degrees`.
+    /// Erasing takes every mark off that surface, also one it had before the user's strokes.
+    Fill { point: P3, normal: P3, kind: DabKind, erase: bool, degrees: f32 },
+    /// One touch of the brush.
+    Dab(Dab),
+    /// Everything before this is forgotten.
+    Clear,
+}
+
 impl Mask {
+    /// Works the user's strokes into the mask, in their order: fills become marks on the faces
+    /// of `source` (the model as loaded, welded), dabs are kept as they are.
+    ///
+    /// A fill whose point is farther than `reach` mm from the model's surface is not meant for
+    /// this model (a part of a project next to the one that was clicked) and is left out.
+    pub fn apply_ops(&mut self, source: &Mesh, ops: &[Op], reach: f32) {
+        // Only what follows the last clearing counts.
+        let from = ops.iter().rposition(|op| matches!(op, Op::Clear)).map_or(0, |i| i + 1);
+        if from > 0 {
+            self.dabs.clear();
+        }
+        let ops = &ops[from..];
+        let fills = ops.iter().any(|op| matches!(op, Op::Fill { .. }));
+        let lookup = fills.then(|| (crate::topology::Topology::build(source), Bvh::build(source)));
+        for op in ops {
+            match *op {
+                Op::Clear => {}
+                Op::Dab(dab) => self.dabs.push(dab),
+                Op::Fill { point, normal, kind, erase, degrees } => {
+                    let Some((topology, bvh)) = &lookup else { continue };
+                    let Some((nearest, _, distance)) = bvh.closest(source, point) else { continue };
+                    if distance > reach {
+                        continue;
+                    }
+                    // At an edge the nearest triangle may be the neighbouring face: of all that
+                    // are about as near, the one facing the way the click did.
+                    let mut near = Vec::new();
+                    bvh.within(source, point, distance + reach.clamp(1e-4, 0.05), &mut near);
+                    near.sort_unstable();
+                    let facing = |t: u32| vec::dot(face_normal(source, t as usize), normal);
+                    let start = near
+                        .into_iter()
+                        .fold(nearest, |best, t| if facing(t) > facing(best) + 1e-4 { t } else { best });
+                    let mark = match (erase, kind) {
+                        (true, _) => 0,
+                        (false, DabKind::Exclude) => EXCLUDED,
+                        (false, DabKind::Include) => INCLUDED,
+                    };
+                    if self.faces.len() < source.triangles.len() {
+                        self.faces.resize(source.triangles.len(), 0);
+                    }
+                    for t in crate::select::surface(source, topology, start, degrees) {
+                        self.faces[t as usize] = mark;
+                    }
+                }
+            }
+        }
+    }
+
     /// Leaves out what looks down within `degrees`: the usual choice, so a part still lies flat.
     pub fn without_bottom(degrees: f32) -> Mask {
         Mask { bottom_degrees: degrees, ..Mask::default() }
@@ -360,6 +423,75 @@ mod tests {
             let inside = p[2] == 10.0 && vec::distance(*p, paint.centre) <= 3.0;
             assert_eq!(*w, if inside { 1.0 } else { 0.0 }, "{p:?}");
         }
+    }
+
+    #[test]
+    fn a_click_fills_the_face_it_meant_whatever_the_resolution() {
+        let coarse = shapes::cuboid([10.0; 3]);
+        // A click on the top, right at the edge to the front, a hair above the surface.
+        let click = Op::Fill {
+            point: [5.0, 0.01, 10.02],
+            normal: [0.0, 0.0, 1.0],
+            kind: DabKind::Exclude,
+            erase: false,
+            degrees: 30.0,
+        };
+        let mut mask = Mask::default();
+        mask.apply_ops(&coarse, &[click], 1.0);
+        assert_eq!(mask.faces, [vec![0; 2], vec![EXCLUDED; 2], vec![0; 8]].concat());
+        // The same click on a finer copy of the cube marks its whole top there as well.
+        let fine = subdivide(&coarse, Limits { max_edge: 1.5, max_triangles: usize::MAX, refine: None });
+        let mut mask = Mask::default();
+        mask.apply_ops(&fine.mesh, &[click], 1.0);
+        for (t, mark) in mask.faces.iter().enumerate() {
+            assert_eq!(*mark, if fine.parent[t] == 2 || fine.parent[t] == 3 { EXCLUDED } else { 0 }, "triangle {t}");
+        }
+        // Facing the front instead, the same point means the front.
+        let front = Op::Fill {
+            point: [5.0, 0.01, 10.02],
+            normal: [0.0, -1.0, 0.0],
+            kind: DabKind::Include,
+            erase: false,
+            degrees: 30.0,
+        };
+        let mut mask = Mask::default();
+        mask.apply_ops(&coarse, &[front], 1.0);
+        assert_eq!(mask.faces, [vec![0; 4], vec![INCLUDED; 2], vec![0; 6]].concat());
+    }
+
+    #[test]
+    fn strokes_count_in_their_order_and_far_clicks_are_not_meant() {
+        let cube = shapes::cuboid([10.0; 3]);
+        let top =
+            |kind, erase| Op::Fill { point: [5.0, 5.0, 10.0], normal: [0.0, 0.0, 1.0], kind, erase, degrees: 30.0 };
+        let dab = Dab {
+            centre: [5.0, 5.0, 10.0],
+            normal: [0.0, 0.0, 1.0],
+            radius: 2.0,
+            hardness: 1.0,
+            kind: DabKind::Exclude,
+            erase: false,
+        };
+        // Erasing takes a mark off that was there before the strokes (the inside found by itself).
+        let mut mask = Mask { faces: vec![EXCLUDED; 12], ..Mask::default() };
+        mask.apply_ops(&cube, &[top(DabKind::Exclude, true)], 1.0);
+        assert_eq!(mask.faces, [vec![EXCLUDED; 2], vec![0; 2], vec![EXCLUDED; 8]].concat());
+        // Clearing forgets what came before it, and only that.
+        let mut mask = Mask::default();
+        mask.apply_ops(&cube, &[top(DabKind::Exclude, false), Op::Dab(dab), Op::Clear, Op::Dab(dab)], 1.0);
+        assert!(mask.faces.iter().all(|m| *m == 0));
+        assert_eq!(mask.dabs, vec![dab]);
+        // A click 30 mm away belongs to another part.
+        let far = Op::Fill {
+            point: [5.0, 5.0, 40.0],
+            normal: [0.0, 0.0, 1.0],
+            kind: DabKind::Exclude,
+            erase: false,
+            degrees: 30.0,
+        };
+        let mut mask = Mask::default();
+        mask.apply_ops(&cube, &[far], 1.0);
+        assert!(mask.faces.iter().all(|m| *m == 0));
     }
 
     #[test]
