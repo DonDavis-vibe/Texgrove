@@ -9,13 +9,15 @@
 //! 2. [`topology`] finds the edges, [`normals`] the directions a surface point moves along.
 //! 3. [`diagnostics`] says whether the mesh is closed and in one piece.
 //! 4. [`subdivide`] cuts the triangles small enough to carry a texture, [`project`] says where
-//!    on a [`heightmap`] each vertex lies, and [`displace`] moves it; [`pipeline`] runs all of it.
+//!    on a [`heightmap`] each vertex lies, and [`displace`] moves it; [`decimate`] brings the result down to a size a slicer
+//!    likes. [`pipeline`] runs all of it.
 //! 5. [`export`] writes binary STL and 3MF.
 //!
 //! [`bvh`] answers "what does this ray hit" and "which triangles are near this point" on
 //! millions of triangles.
 
 pub mod bvh;
+pub mod decimate;
 pub mod diagnostics;
 pub mod displace;
 pub mod export;

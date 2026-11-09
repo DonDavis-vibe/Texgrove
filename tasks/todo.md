@@ -38,10 +38,16 @@ nicht immer sauber; Unterteilen/Verschieben/Reduzieren (M2) müssen damit umgehe
 - [x] CLI `apply`, `pattern` (PGM)
 - [x] Erste Ergebnisse: Adapter mit Rändel/Waben/Geflecht, Würfel mit Ziegeln/Voronoi
       (`out/first-textures.png`); 8,3 M Dreiecke in 5 s, 590 MB
-- [ ] `decimate` (QEM mit Schutzregeln) – **als Nächstes**: Rändel auf dem Adapter sind 8,3 M
-      Dreiecke / 98 MB 3MF, das muss auf ein Budget herunter
+- [x] `decimate` (QEM: Ränder halten ihre Linie, Flächen wachsen nicht zusammen, kein Umklappen,
+      Finnen bleiben; Budget + Toleranz; Fortschritt/Abbruch; Schubladen-Warteschlange statt Heap)
+- [x] In `pipeline::texture_with` (Stufen Verfeinern → Verschieben → Reduzieren, abbrechbar) und
+      CLI (`--triangles`, `--tolerance`)
+- [x] Gemessen: Adapter 8,3 M → 1 M in 24 s (1,2 GB), Volumen ±0,004 %; Ziegel-Würfel 786 k → 8,7 k
+      in 1,5 s (`out/reduced.png`)
+- [ ] Tempo beim Reduzieren großer Netze (≈ 5 µs je Kante, Speicherzugriffe quer durchs Netz):
+      in M10 messen, ggf. räumlich geordnet arbeiten; und nicht 8× mehr verfeinern als am Ende bleibt
 - [ ] `mask` (Flags, Tupfer, Winkel, Randauslauf), `layers`, `quality` (Stufen aus Düse)
-- [ ] Flip-Nachlauf, Überlappungswarnung, Fortschritt/Abbruch in der Pipeline
+- [ ] Flip-Nachlauf, Überlappungswarnung
 - [ ] Outline wrap, Stempel (M8), Naht-Blend für Box/Zylinder
 - [ ] Eigenschaftstests (proptest), `bench`
 

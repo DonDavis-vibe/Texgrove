@@ -1,5 +1,6 @@
-//! From a model and a texture to the textured model: refine, find the directions, move.
+//! From a model and a texture to the textured model: refine, find the directions, move, reduce.
 
+use crate::decimate::{Target, decimate};
 use crate::displace::{Relief, displace};
 use crate::heightmap::Heightmap;
 use crate::mesh::Mesh;
@@ -25,6 +26,12 @@ pub struct Settings {
     pub protect_edges: bool,
     /// Edges whose faces differ by more than this many degrees count as sharp.
     pub sharp_degrees: f32,
+    /// The most triangles the result may have: the textured mesh is reduced to it, taking away
+    /// first what changes the shape least. `usize::MAX` keeps everything.
+    pub triangles: usize,
+    /// Below that, what moves the surface by less than this (mm) is still taken away: flat
+    /// stretches that were cut fine for nothing. 0 takes away nothing more.
+    pub tolerance: f32,
 }
 
 impl Default for Settings {
@@ -37,6 +44,8 @@ impl Default for Settings {
             max_triangles: 10_000_000,
             protect_edges: true,
             sharp_degrees: 30.0,
+            triangles: 1_000_000,
+            tolerance: 0.005,
         }
     }
 }
@@ -51,15 +60,41 @@ pub struct Textured {
     pub edge: f32,
     /// Whether the budget still cut the refining short.
     pub capped: bool,
+    /// How many triangles the mesh had before it was reduced.
+    pub refined_triangles: usize,
+}
+
+/// What the pipeline is doing, for a progress bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    Refine,
+    Move,
+    Reduce,
 }
 
 /// Puts a texture onto a welded mesh ([`crate::weld`]).
 pub fn texture(source: &Mesh, map: &Heightmap, settings: &Settings) -> Textured {
+    texture_with(source, map, settings, &mut |_, _| true).expect("nothing stops it")
+}
+
+/// [`texture`], telling `go_on` what it is doing and how far it is (0 to 1 within a stage).
+/// `go_on` stops the work by answering `false`; then there is no result.
+pub fn texture_with(
+    source: &Mesh,
+    map: &Heightmap,
+    settings: &Settings,
+    go_on: &mut dyn FnMut(Stage, f32) -> bool,
+) -> Option<Textured> {
+    if !go_on(Stage::Refine, 0.0) {
+        return None;
+    }
     let bounds = source.bounds();
     let edge = edge_for_budget(source, settings.max_edge, settings.max_triangles, None);
-    // The estimate may be off by some; the hard stop is well above the budget.
-    let limits = Limits { max_edge: edge, max_triangles: settings.max_triangles.saturating_mul(2), refine: None };
+    let limits = Limits { max_edge: edge, max_triangles: settings.max_triangles, refine: None };
     let refined = subdivide(source, limits);
+    if !go_on(Stage::Move, 0.0) {
+        return None;
+    }
     let mut mesh = refined.mesh;
     let normals = vertex_normals(&mesh, Weighting::Angle);
     let weights = settings.protect_edges.then(|| {
@@ -75,7 +110,22 @@ pub fn texture(source: &Mesh, map: &Heightmap, settings: &Settings) -> Textured 
     });
     let projector = Projector::new(settings.mapping, &settings.placement, &bounds, map.aspect);
     displace(&mut mesh, &normals, weights.as_deref(), &projector, map, &settings.relief);
-    Textured { mesh, parent: refined.parent, edge, capped: refined.capped }
+    drop((normals, weights));
+    let refined_triangles = mesh.triangles.len();
+    let mut parent = refined.parent;
+    if !go_on(Stage::Reduce, 0.0) {
+        return None;
+    }
+    if refined_triangles > settings.triangles || settings.tolerance > 0.0 {
+        let target = Target { triangles: settings.triangles, tolerance: settings.tolerance };
+        let reduced = decimate(&mesh, target, |done| go_on(Stage::Reduce, done));
+        if reduced.stopped {
+            return None;
+        }
+        parent = reduced.source_triangle.iter().map(|&t| parent[t as usize]).collect();
+        mesh = reduced.mesh;
+    }
+    Some(Textured { mesh, parent, edge, capped: refined.capped, refined_triangles })
 }
 
 #[cfg(test)]
@@ -90,6 +140,8 @@ mod tests {
             placement: Placement { tile: 4.0, ..Placement::default() },
             relief: Relief { depth: 0.6, midlevel: 0.5, invert: false },
             max_edge: 0.5,
+            triangles: usize::MAX,
+            tolerance: 0.0,
             ..Settings::default()
         }
     }
@@ -124,6 +176,8 @@ mod tests {
             relief: Relief { depth: 1.0, midlevel: 0.0, invert: false },
             protect_edges: false,
             max_edge: 2.0,
+            triangles: usize::MAX,
+            tolerance: 0.0,
             ..Settings::default()
         };
         let grown = texture(&cube, &map, &raise);
@@ -153,6 +207,35 @@ mod tests {
 
         let small = texture(&ring, &map, &Settings { max_triangles: 20_000, protect_edges: false, ..settings() });
         assert!(small.edge > 0.5 && small.mesh.triangles.len() < 40_000, "{}", small.mesh.triangles.len());
+    }
+
+    #[test]
+    fn the_result_is_reduced_to_its_budget_and_can_be_stopped() {
+        let cube = shapes::cuboid([20.0; 3]);
+        let map = Pattern::Knurl.render(256);
+        let full = texture(&cube, &map, &settings());
+        let lean = texture(&cube, &map, &Settings { triangles: 20_000, ..settings() });
+        assert_eq!(lean.refined_triangles, full.mesh.triangles.len());
+        assert!(lean.mesh.triangles.len() <= 20_000);
+        assert_eq!(lean.parent.len(), lean.mesh.triangles.len());
+        assert!(lean.parent.iter().all(|&p| p < 12));
+        let (a, b) = (diagnose(&lean.mesh), diagnose(&full.mesh));
+        assert!(a.sound() && (a.volume - b.volume).abs() < b.volume * 0.003, "{} {}", a.volume, b.volume);
+
+        // An untextured stretch (black, nothing raised) goes back to a few triangles by itself.
+        let black = Heightmap::new(1, 1, vec![0.0]).unwrap();
+        let raise =
+            Settings { relief: Relief { depth: 1.0, midlevel: 0.0, invert: false }, tolerance: 0.001, ..settings() };
+        let plain = texture(&cube, &black, &raise);
+        assert!(plain.mesh.triangles.len() < 100 && plain.refined_triangles > 10_000, "{}", plain.mesh.triangles.len());
+
+        let mut stages = Vec::new();
+        let stopped = texture_with(&cube, &map, &settings(), &mut |stage, _| {
+            stages.push(stage);
+            stage != Stage::Reduce
+        });
+        assert!(stopped.is_none());
+        assert_eq!(stages, vec![Stage::Refine, Stage::Move, Stage::Reduce]);
     }
 
     #[test]

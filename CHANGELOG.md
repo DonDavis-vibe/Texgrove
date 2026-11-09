@@ -20,4 +20,7 @@ The mesh kernel.
   flat from each axis; tile size in millimetres, shift and rotation.
 - **Texturing**: edges are halved until the mesh is fine enough, every vertex moves once along its
   normal, so a closed model stays closed; sharp edges can be held in place.
+- **Reducing**: the textured mesh is brought down to a triangle budget by pulling together the
+  edges that change the shape least; rims, holes and sharp edges stay, and flat stretches go
+  back to a few triangles by themselves.
 - **Command line**: `texgrove diag`, `texgrove convert`, `texgrove apply`, `texgrove pattern`.

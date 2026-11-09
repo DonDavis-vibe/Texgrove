@@ -82,6 +82,12 @@ struct Apply {
     /// The most triangles while refining; edges get longer to stay below.
     #[arg(long, default_value_t = 10_000_000)]
     max_triangles: usize,
+    /// The most triangles the result may have; 0 keeps them all.
+    #[arg(long, default_value_t = 1_000_000)]
+    triangles: usize,
+    /// Below that, still take away what moves the surface by less than this many mm.
+    #[arg(long, default_value_t = 0.005)]
+    tolerance: f32,
     /// Let the model's sharp edges move with the texture.
     #[arg(long)]
     free_edges: bool,
@@ -139,6 +145,8 @@ fn run(command: Command) -> Result<(), String> {
                 max_edge: apply.edge.unwrap_or((apply.tile * pattern.detail() / 2.0).max(0.1)),
                 max_triangles: apply.max_triangles,
                 protect_edges: !apply.free_edges,
+                triangles: if apply.triangles == 0 { usize::MAX } else { apply.triangles },
+                tolerance: apply.tolerance,
                 ..Settings::default()
             };
             let started = Instant::now();
@@ -150,6 +158,7 @@ fn run(command: Command) -> Result<(), String> {
                     textured.edge, settings.max_edge, settings.max_triangles
                 );
             }
+            println!("  refined to       {} triangles, {:.2} mm edges", textured.refined_triangles, textured.edge);
             print_report(&diagnostics::diagnose(&textured.mesh), 0);
             println!("  textured in      {:.2} s", took.as_secs_f64());
             save(&apply.output, &textured.mesh)
