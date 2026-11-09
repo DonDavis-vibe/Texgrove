@@ -179,7 +179,9 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       kein Artefakt-Upload
 - [ ] Mit Meshgrove 0.9.0: API auf `tag = "v0.9.0"` pinnen, CI bei Push auf main einschalten,
       Version 1.0.0 in beiden `Cargo.toml` und im CHANGELOG
-- [ ] Grafiken (Krea 2 Turbo über ComfyUI; ComfyUI muss laufen)
+- [ ] Grafiken: zehn Entwürfe (6 Icons, 4 Banner) samt Prompts in `assets/entwuerfe/`, Übersicht
+      `assets/entwuerfe/auswahl.png` (10.11.) – **Davis wählt**, danach Icon-Größen 16–1024,
+      `banner.png` + `banner-2000.webp`, Banner ins README
 - [ ] **Test unter Linux ganz normal lokal** (Davis, 09.11.)
 - [ ] **Test in der Windows-VM** (Davis, 09.11.: „vor allem auch“)
   - [x] Host-Branch (ac194ea) baut dort: `meshgrove`, `meshgrove-step`, `meshgrove-mcp`,
