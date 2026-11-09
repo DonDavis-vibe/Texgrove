@@ -1,0 +1,18 @@
+[package]
+name = "texgrove-cli"
+description = "Command line for Texgrove: check meshes, convert them, apply textures"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "texgrove"
+path = "src/main.rs"
+
+[dependencies]
+texgrove-core.workspace = true
+clap.workspace = true
