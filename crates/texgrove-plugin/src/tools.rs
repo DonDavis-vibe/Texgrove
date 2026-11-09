@@ -269,7 +269,8 @@ fn inspect(args: &Args) -> Result<ToolOutput, PluginError> {
     let round = |v: f32| (v * 10.0).round() / 10.0;
     let result = json!({
         "name": source.name,
-        "size_mm": size.map(round),
+        // Rounded as f64: a rounded f32 in a list is written out as 179.60000610351562.
+        "size_mm": size.map(|v| (f64::from(v) * 10.0).round() / 10.0),
         "triangles": report.triangles,
         "closed": report.closed(),
         "pieces": report.shells,

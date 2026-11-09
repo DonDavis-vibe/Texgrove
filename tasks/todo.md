@@ -182,4 +182,17 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
 - [ ] Grafiken (Krea 2 Turbo über ComfyUI; ComfyUI muss laufen)
 - [ ] **Test unter Linux ganz normal lokal** (Davis, 09.11.)
 - [ ] **Test in der Windows-VM** (Davis, 09.11.: „vor allem auch“)
+  - [x] Host-Branch (ac194ea) baut dort: `meshgrove`, `meshgrove-step`, `meshgrove-mcp`,
+        `meshgrove-plugin-run` (10.11., 19 + 6 min)
+  - [x] Ohne Fenster (`target/host/vm/tex-headless.ps1`, Bibliothek `C:\dev\TexLib\Werkstatt –
+        Prüfung` mit `Würfel – groß.stl`, `Adapter.STL`, `Helmhalter (Projekt).3mf`): `inspect`,
+        `preview`, `apply` als 3MF und STL, Adapter 1 M Dreiecke in 21 s, ein Teil der 3MF getauscht.
+        Würfel-3MF und Rohr-STL sind **byte-gleich** mit Linux; die getauschte 3MF hat denselben
+        Inhalt (nur das Betriebssystem-Byte im ZIP unterscheidet sich)
+  - [x] Über `meshgrove-mcp.exe --local` (von hier per SSH gesteuert): `texgrove_inspect`,
+        `texgrove_preview` (Bild), `texgrove_apply` → Job, Prozess wartet 6 s, Vorschlag
+        „bin_2x1_6u – Waben“ steht in der Prüfung
+  - [ ] Im Fenster klicken (`target/host/vm/vmcase.sh`): Rechtsklick → Panel → Vorschau →
+        Auftragen neben das Original, Vorschlag annehmen, Malen, Dateidialog. **Braucht Davis:
+        Konto „test“ an der VM-Konsole anmelden** (kein Auto-Login, Passwort tippe ich nicht)
 - [ ] Info an CNC Kitchen (Text entwerfen, Davis schickt)
