@@ -46,10 +46,25 @@ nicht immer sauber; Unterteilen/Verschieben/Reduzieren (M2) müssen damit umgehe
       in 1,5 s (`out/reduced.png`)
 - [ ] Tempo beim Reduzieren großer Netze (≈ 5 µs je Kante, Speicherzugriffe quer durchs Netz):
       in M10 messen, ggf. räumlich geordnet arbeiten; und nicht 8× mehr verfeinern als am Ende bleibt
-- [ ] `mask` (Flags, Tupfer, Winkel, Randauslauf), `layers`, `quality` (Stufen aus Düse)
+- [x] `mask`: Winkel oben/unten, Flächen aus-/einschließen, Pinsel-Tupfer (Radius, Härte,
+      radieren, nur zugewandte Seite), weicher Auslauf; was stehen bleibt, bleibt bis zum Rand plan
+- [x] `select`: „innen/außen“ automatisch (Wand blickt über einen Hohlraum auf eine Wand; je glatte
+      Fläche als Ganzes entschieden), Klick wählt glatte Fläche bis zur scharfen Kante, Offenheit
+- [x] Ebenen (`texture_layers`: verdecken/addieren, je Ebene eigene Maske), `Finish` getrennt
+- [x] `quality` (Entwurf/Normal/Fein aus Musterdetail und Düse), `Heightmap::detail`
+- [x] CLI: `--where all|outside|inside`, `--bottom-angle` (Standard 5°), `--top-angle`,
+      `--falloff`, `--quality`, `--nozzle`
+- [x] Davis' Slicer-Test (Anycubic Slicer Next, 09.11.): Ziegel-Würfel lädt und slict sauber
+- [x] Am Adapter geprüft: nur außen Rändel / nur innen Rippen (`out/where.png`)
 - [ ] Flip-Nachlauf, Überlappungswarnung
 - [ ] Outline wrap, Stempel (M8), Naht-Blend für Box/Zylinder
 - [ ] Eigenschaftstests (proptest), `bench`
+
+**Davis, 09.11.: Man muss einstellen können, wo die Textur hinkommt** – Teile mit Innen- und
+Außenseite dürfen nicht zwangsläufig überall texturiert werden, sonst leidet die Funktion
+(Passungen, Bohrungen). Im Plugin deshalb gut sichtbar, nicht versteckt: „Überall / Nur außen /
+Nur innen“ als Schnellwahl, dazu Fläche anklicken (füllen) und Pinsel; Unterseite standardmäßig
+glatt. Rillen außen zählen bei der Automatik als „innen“ – das korrigiert man per Klick.
 
 Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecksbudget lässt sich
 über die Kantenlänge nur grob treffen; das Budget fürs Ergebnis macht das Reduzieren.

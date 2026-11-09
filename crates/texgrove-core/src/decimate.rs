@@ -531,7 +531,7 @@ mod tests {
     use super::*;
     use crate::diagnostics::diagnose;
     use crate::pattern::Pattern;
-    use crate::pipeline::{self, Settings};
+    use crate::pipeline::{self, Finish, Settings};
     use crate::project::Placement;
     use crate::shapes;
     use crate::subdivide::{Limits, subdivide};
@@ -618,7 +618,7 @@ mod tests {
         let cube = shapes::cuboid([20.0; 3]);
         let settings = Settings {
             placement: Placement { tile: 5.0, ..Placement::default() },
-            max_edge: 0.3,
+            finish: Finish { max_edge: 0.3, triangles: usize::MAX, tolerance: 0.0, ..Finish::default() },
             ..Settings::default()
         };
         let textured = pipeline::texture(&cube, &Pattern::Knurl.render(256), &settings).mesh;

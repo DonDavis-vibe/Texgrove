@@ -1,21 +1,32 @@
-//! From a model and a texture to the textured model: refine, find the directions, move, reduce.
+//! From a model and its textures to the textured model: refine, find the directions, move, reduce.
 
+use crate::bvh::Bvh;
 use crate::decimate::{Target, decimate};
-use crate::displace::{Relief, displace};
+use crate::displace::{Blend, Coat, Relief, lay_on, shift};
 use crate::heightmap::Heightmap;
+use crate::mask::Mask;
 use crate::mesh::Mesh;
 use crate::normals::{Weighting, face_normals, sharp_edges, vertex_normals};
 use crate::project::{Mapping, Placement, Projector};
 use crate::subdivide::{Limits, edge_for_budget, subdivide};
 use crate::topology::Topology;
 
-/// Everything that decides how a texture goes onto a model.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Settings {
+/// One texture on a model: what, how it is laid on, how deep, and where.
+#[derive(Debug, Clone)]
+pub struct Layer<'a> {
+    pub map: &'a Heightmap,
     pub mapping: Mapping,
     pub placement: Placement,
     pub relief: Relief,
-    /// The longest edge the refined mesh may have, in mm: the detail the texture can show.
+    pub mask: Mask,
+    /// How it meets the layers before it in the list.
+    pub blend: Blend,
+}
+
+/// How fine the mesh is made for the textures and how small it is afterwards.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Finish {
+    /// The longest edge the refined mesh may have, in mm: the detail a texture can show.
     pub max_edge: f32,
     /// The most triangles the mesh may have while it is refined: a guard against running out of
     /// memory, not the size of the result. The edge length grows to fit, in steps (edges are
@@ -34,12 +45,9 @@ pub struct Settings {
     pub tolerance: f32,
 }
 
-impl Default for Settings {
+impl Default for Finish {
     fn default() -> Self {
-        Settings {
-            mapping: Mapping::default(),
-            placement: Placement::default(),
-            relief: Relief::default(),
+        Finish {
             max_edge: 0.5,
             max_triangles: 10_000_000,
             protect_edges: true,
@@ -48,6 +56,17 @@ impl Default for Settings {
             tolerance: 0.005,
         }
     }
+}
+
+/// Everything that decides how one texture goes onto a model: a [`Layer`] without its height
+/// map, and the [`Finish`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Settings {
+    pub mapping: Mapping,
+    pub placement: Placement,
+    pub relief: Relief,
+    pub mask: Mask,
+    pub finish: Finish,
 }
 
 /// A textured model.
@@ -72,7 +91,7 @@ pub enum Stage {
     Reduce,
 }
 
-/// Puts a texture onto a welded mesh ([`crate::weld`]).
+/// Puts one texture onto a welded mesh ([`crate::weld`]).
 pub fn texture(source: &Mesh, map: &Heightmap, settings: &Settings) -> Textured {
     texture_with(source, map, settings, &mut |_, _| true).expect("nothing stops it")
 }
@@ -85,39 +104,71 @@ pub fn texture_with(
     settings: &Settings,
     go_on: &mut dyn FnMut(Stage, f32) -> bool,
 ) -> Option<Textured> {
+    let layer = Layer {
+        map,
+        mapping: settings.mapping,
+        placement: settings.placement,
+        relief: settings.relief,
+        mask: settings.mask.clone(),
+        blend: Blend::Cover,
+    };
+    texture_layers(source, &[layer], &settings.finish, go_on)
+}
+
+/// Puts several textures onto a welded mesh, one over the other in the order given.
+pub fn texture_layers(
+    source: &Mesh,
+    layers: &[Layer],
+    finish: &Finish,
+    go_on: &mut dyn FnMut(Stage, f32) -> bool,
+) -> Option<Textured> {
     if !go_on(Stage::Refine, 0.0) {
         return None;
     }
     let bounds = source.bounds();
-    let edge = edge_for_budget(source, settings.max_edge, settings.max_triangles, None);
-    let limits = Limits { max_edge: edge, max_triangles: settings.max_triangles, refine: None };
+    // What each layer may touch, and so what is worth refining: what any of them may.
+    let active: Vec<Vec<bool>> = layers.iter().map(|layer| layer.mask.active(source)).collect();
+    let any: Vec<bool> = (0..source.triangles.len()).map(|t| active.iter().any(|a| a[t])).collect();
+    let edge = edge_for_budget(source, finish.max_edge, finish.max_triangles, Some(&any));
+    let limits = Limits { max_edge: edge, max_triangles: finish.max_triangles, refine: Some(&any) };
     let refined = subdivide(source, limits);
     if !go_on(Stage::Move, 0.0) {
         return None;
     }
     let mut mesh = refined.mesh;
+    let mut parent = refined.parent;
     let normals = vertex_normals(&mesh, Weighting::Angle);
-    let weights = settings.protect_edges.then(|| {
+    let held = finish.protect_edges.then(|| {
         let topology = Topology::build(&mesh);
-        let sharp = sharp_edges(&mesh, &topology, &face_normals(&mesh), settings.sharp_degrees);
-        let mut weights = vec![1.0f32; mesh.positions.len()];
+        let sharp = sharp_edges(&mesh, &topology, &face_normals(&mesh), finish.sharp_degrees);
+        let mut held = vec![false; mesh.positions.len()];
         for (edge, _) in sharp.iter().enumerate().filter(|(_, sharp)| **sharp) {
             for vertex in topology.edge_vertices(&mesh, edge as u32) {
-                weights[vertex as usize] = 0.0;
+                held[vertex as usize] = true;
             }
         }
-        weights
+        held
     });
-    let projector = Projector::new(settings.mapping, &settings.placement, &bounds, map.aspect);
-    displace(&mut mesh, &normals, weights.as_deref(), &projector, map, &settings.relief);
-    drop((normals, weights));
+    // The tree is only for brush strokes; most models have none.
+    let bvh = layers.iter().any(|layer| !layer.mask.dabs.is_empty()).then(|| Bvh::build(&mesh));
+    let mut offsets = vec![0.0f32; mesh.positions.len()];
+    for (i, layer) in layers.iter().enumerate() {
+        if !go_on(Stage::Move, i as f32 / layers.len() as f32) {
+            return None;
+        }
+        let weights = layer.mask.weights(&active[i], &mesh, &parent, &normals, held.as_deref(), bvh.as_ref());
+        let projector = Projector::new(layer.mapping, &layer.placement, &bounds, layer.map.aspect);
+        let coat = Coat { projector: &projector, map: layer.map, relief: &layer.relief, blend: layer.blend };
+        lay_on(&mut offsets, &mesh, &normals, Some(&weights), &coat);
+    }
+    shift(&mut mesh, &normals, &offsets);
+    drop((normals, offsets, held, bvh));
     let refined_triangles = mesh.triangles.len();
-    let mut parent = refined.parent;
     if !go_on(Stage::Reduce, 0.0) {
         return None;
     }
-    if refined_triangles > settings.triangles || settings.tolerance > 0.0 {
-        let target = Target { triangles: settings.triangles, tolerance: settings.tolerance };
+    if refined_triangles > finish.triangles || finish.tolerance > 0.0 {
+        let target = Target { triangles: finish.triangles, tolerance: finish.tolerance };
         let reduced = decimate(&mesh, target, |done| go_on(Stage::Reduce, done));
         if reduced.stopped {
             return None;
@@ -132,18 +183,27 @@ pub fn texture_with(
 mod tests {
     use super::*;
     use crate::diagnostics::diagnose;
+    use crate::mask::{Dab, DabKind, EXCLUDED, INCLUDED};
     use crate::pattern::Pattern;
+    use crate::select;
     use crate::shapes;
+
+    /// Everything kept: no reducing, so the tests see what refining and moving did.
+    fn keep_all() -> Finish {
+        Finish { max_edge: 0.5, triangles: usize::MAX, tolerance: 0.0, ..Finish::default() }
+    }
 
     fn settings() -> Settings {
         Settings {
             placement: Placement { tile: 4.0, ..Placement::default() },
             relief: Relief { depth: 0.6, midlevel: 0.5, invert: false },
-            max_edge: 0.5,
-            triangles: usize::MAX,
-            tolerance: 0.0,
+            finish: keep_all(),
             ..Settings::default()
         }
+    }
+
+    fn free_edges() -> Settings {
+        Settings { finish: Finish { protect_edges: false, ..keep_all() }, ..settings() }
     }
 
     #[test]
@@ -174,10 +234,7 @@ mod tests {
         let map = Heightmap::new(1, 1, vec![1.0]).unwrap();
         let raise = Settings {
             relief: Relief { depth: 1.0, midlevel: 0.0, invert: false },
-            protect_edges: false,
-            max_edge: 2.0,
-            triangles: usize::MAX,
-            tolerance: 0.0,
+            finish: Finish { max_edge: 2.0, ..free_edges().finish },
             ..Settings::default()
         };
         let grown = texture(&cube, &map, &raise);
@@ -194,7 +251,7 @@ mod tests {
     fn round_shapes_open_shapes_and_budgets() {
         let map = Pattern::Hexagons.render(256);
         let ring = shapes::torus(20.0, 6.0, 48, 24);
-        let textured = texture(&ring, &map, &Settings { protect_edges: false, ..settings() });
+        let textured = texture(&ring, &map, &free_edges());
         let report = diagnose(&textured.mesh);
         assert!(report.sound() && report.euler() == 0, "{report:?}");
 
@@ -205,8 +262,9 @@ mod tests {
         // The rim is an edge without a second face: it is held, so the outline stays.
         assert_eq!((report.bounds.min[0], report.bounds.max[0]), (0.0, 30.0));
 
-        let small = texture(&ring, &map, &Settings { max_triangles: 20_000, protect_edges: false, ..settings() });
-        assert!(small.edge > 0.5 && small.mesh.triangles.len() < 40_000, "{}", small.mesh.triangles.len());
+        let tight = Settings { finish: Finish { max_triangles: 20_000, ..free_edges().finish }, ..settings() };
+        let small = texture(&ring, &map, &tight);
+        assert!(small.edge > 0.5 && small.mesh.triangles.len() <= 20_000, "{}", small.mesh.triangles.len());
     }
 
     #[test]
@@ -214,7 +272,7 @@ mod tests {
         let cube = shapes::cuboid([20.0; 3]);
         let map = Pattern::Knurl.render(256);
         let full = texture(&cube, &map, &settings());
-        let lean = texture(&cube, &map, &Settings { triangles: 20_000, ..settings() });
+        let lean = texture(&cube, &map, &Settings { finish: Finish { triangles: 20_000, ..keep_all() }, ..settings() });
         assert_eq!(lean.refined_triangles, full.mesh.triangles.len());
         assert!(lean.mesh.triangles.len() <= 20_000);
         assert_eq!(lean.parent.len(), lean.mesh.triangles.len());
@@ -224,8 +282,11 @@ mod tests {
 
         // An untextured stretch (black, nothing raised) goes back to a few triangles by itself.
         let black = Heightmap::new(1, 1, vec![0.0]).unwrap();
-        let raise =
-            Settings { relief: Relief { depth: 1.0, midlevel: 0.0, invert: false }, tolerance: 0.001, ..settings() };
+        let raise = Settings {
+            relief: Relief { depth: 1.0, midlevel: 0.0, invert: false },
+            finish: Finish { tolerance: 0.001, ..keep_all() },
+            ..settings()
+        };
         let plain = texture(&cube, &black, &raise);
         assert!(plain.mesh.triangles.len() < 100 && plain.refined_triangles > 10_000, "{}", plain.mesh.triangles.len());
 
@@ -235,7 +296,7 @@ mod tests {
             stage != Stage::Reduce
         });
         assert!(stopped.is_none());
-        assert_eq!(stages, vec![Stage::Refine, Stage::Move, Stage::Reduce]);
+        assert_eq!(stages, vec![Stage::Refine, Stage::Move, Stage::Move, Stage::Reduce]);
     }
 
     #[test]
@@ -245,5 +306,127 @@ mod tests {
         let one = texture(&ball, &map, &settings());
         let two = texture(&ball, &map, &settings());
         assert_eq!(one.mesh, two.mesh);
+    }
+
+    #[test]
+    fn a_part_keeps_lying_flat_when_its_bottom_is_left_out() {
+        let cube = shapes::cuboid([20.0; 3]);
+        let map = Pattern::Bricks.render(256);
+        let flat = Settings { mask: Mask::without_bottom(5.0), ..settings() };
+        let textured = texture(&cube, &map, &flat);
+        let report = diagnose(&textured.mesh);
+        assert!(report.sound(), "{report:?}");
+        // Nothing reaches below the bed, and the foot is the full square it was.
+        assert_eq!(report.bounds.min[2], 0.0);
+        let on_bed: Vec<_> = textured.mesh.positions.iter().filter(|p| p[2] == 0.0).collect();
+        assert!(
+            on_bed.iter().any(|p| p[0] == 0.0 && p[1] == 0.0) && on_bed.iter().any(|p| p[0] == 20.0 && p[1] == 20.0)
+        );
+        // The bottom's two triangles were only cut where the walls needed it, and the top moved.
+        assert!(textured.parent.iter().filter(|&&p| p < 2).count() < 400);
+        assert!(report.bounds.max[2] > 20.1);
+    }
+
+    /// A tube standing on z = 0: per segment two triangles each of outer wall, top, bore, bottom.
+    fn tube() -> Mesh {
+        let (outer, inner, height, segments) = (20.0f32, 15.0f32, 40.0f32, 64u32);
+        let mut mesh = Mesh::default();
+        for s in 0..segments {
+            let turn = core::f32::consts::TAU * s as f32 / segments as f32;
+            for (radius, z) in [(outer, 0.0), (outer, height), (inner, height), (inner, 0.0)] {
+                mesh.positions.push([radius * libm::cosf(turn), radius * libm::sinf(turn), z]);
+            }
+        }
+        for s in 0..segments {
+            let next = (s + 1) % segments;
+            for k in 0..4 {
+                let (a, b) = (s * 4 + k, s * 4 + (k + 1) % 4);
+                let (c, d) = (next * 4 + (k + 1) % 4, next * 4 + k);
+                mesh.triangles.push([a, d, c]);
+                mesh.triangles.push([a, c, b]);
+            }
+        }
+        mesh
+    }
+
+    #[test]
+    fn only_the_outside_of_a_tube_is_textured_and_its_bore_still_fits() {
+        let tube = tube();
+        let map = Pattern::Knurl.render(256);
+        // Mark what does not lie open, and the flat ends, as staying.
+        let inside = select::inside(&tube, &Topology::build(&tube), &Bvh::build(&tube), 30.0);
+        let faces = inside.iter().map(|inside| if *inside { EXCLUDED } else { 0 }).collect();
+        let outside_only = Settings {
+            mapping: Mapping::Cylindrical { cap_degrees: 30.0 },
+            mask: Mask { faces, top_degrees: 5.0, bottom_degrees: 5.0, ..Mask::default() },
+            relief: Relief { depth: 1.0, midlevel: 0.0, invert: false },
+            ..settings()
+        };
+        let textured = texture(&tube, &map, &outside_only);
+        let report = diagnose(&textured.mesh);
+        assert!(report.sound() && report.euler() == 0, "{report:?}");
+        let radius = |p: &[f32; 3]| libm::sqrtf(p[0] * p[0] + p[1] * p[1]);
+        // Nothing came nearer to the axis than the bore was, and the ends are as flat as before.
+        let nearest = textured.mesh.positions.iter().map(radius).fold(f32::INFINITY, f32::min);
+        assert!(nearest > 15.0 * libm::cosf(core::f32::consts::PI / 64.0) - 1e-3, "{nearest}");
+        assert_eq!((report.bounds.min[2], report.bounds.max[2]), (0.0, 40.0));
+        // The outside grew by up to the depth.
+        let farthest = textured.mesh.positions.iter().map(radius).fold(0.0, f32::max);
+        assert!(farthest > 20.8 && farthest <= 21.0 + 1e-3, "{farthest}");
+        // The bore was not even refined: two triangles per segment, as before.
+        let bore = textured.parent.iter().filter(|&&p| (p / 2) % 4 == 2).count();
+        assert!(bore < 64 * 2 * 4, "{bore}");
+    }
+
+    #[test]
+    fn layers_lie_over_each_other_and_a_brush_keeps_a_patch_clear() {
+        let cube = shapes::cuboid([20.0; 3]);
+        let (white, knurl) = (Heightmap::new(1, 1, vec![1.0]).unwrap(), Pattern::Knurl.render(256));
+        let raise = Relief { depth: 1.0, midlevel: 0.0, invert: false };
+        let mut top = vec![0; 12];
+        top[2] = INCLUDED;
+        top[3] = INCLUDED;
+        let placement = Placement { tile: 4.0, ..Placement::default() };
+        let base = Layer {
+            map: &white,
+            mapping: Mapping::default(),
+            placement,
+            relief: raise,
+            mask: Mask { faces: top.clone(), ..Mask::default() },
+            blend: Blend::Cover,
+        };
+        // A plate raised by 1 mm on the top: the cube is 21 high, its foot untouched.
+        let plate = texture_layers(&cube, std::slice::from_ref(&base), &keep_all(), &mut |_, _| true).unwrap();
+        let report = diagnose(&plate.mesh);
+        assert!(report.sound());
+        assert_eq!((report.bounds.min, report.bounds.max), ([0.0; 3], [20.0, 20.0, 21.0]));
+
+        // A knurl added on the plate reaches higher; covering it instead does not.
+        let pattern = Layer { map: &knurl, relief: Relief { depth: 0.5, ..raise }, ..base.clone() };
+        let added = [base.clone(), Layer { blend: Blend::Add, ..pattern.clone() }];
+        let added = texture_layers(&cube, &added, &keep_all(), &mut |_, _| true).unwrap();
+        let top_of = |t: &Textured| t.mesh.bounds().max[2];
+        assert!((top_of(&added) - 21.5).abs() < 0.02, "{}", top_of(&added));
+        let covered = texture_layers(&cube, &[base.clone(), pattern], &keep_all(), &mut |_, _| true).unwrap();
+        assert!((top_of(&covered) - 20.5).abs() < 0.02, "{}", top_of(&covered));
+        assert!(diagnose(&added.mesh).sound() && diagnose(&covered.mesh).sound());
+
+        // A brushed patch in the middle of the plate stays down.
+        let dab = Dab {
+            centre: [10.0, 10.0, 20.0],
+            normal: [0.0, 0.0, 1.0],
+            radius: 4.0,
+            hardness: 1.0,
+            kind: DabKind::Exclude,
+            erase: false,
+        };
+        let holed = Layer { mask: Mask { faces: top, dabs: vec![dab], ..Mask::default() }, ..base };
+        let holed = texture_layers(&cube, &[holed], &keep_all(), &mut |_, _| true).unwrap();
+        for p in holed.mesh.positions.iter().filter(|p| p[2] >= 20.0) {
+            let from_centre = libm::sqrtf((p[0] - 10.0).powi(2) + (p[1] - 10.0).powi(2));
+            let inside = p[0] > 0.0 && p[0] < 20.0 && p[1] > 0.0 && p[1] < 20.0;
+            assert_eq!(p[2], if from_centre <= 4.0 || !inside { 20.0 } else { 21.0 }, "{p:?}");
+        }
+        assert!(diagnose(&holed.mesh).sound());
     }
 }

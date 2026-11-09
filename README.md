@@ -16,7 +16,7 @@ beside it.
 ```sh
 cargo run --release -p texgrove-cli -- diag model.stl             # closed? one piece? facing outwards?
 cargo run --release -p texgrove-cli -- convert model.stl out.3mf  # join vertices, write STL or 3MF
-cargo run --release -p texgrove-cli -- apply model.stl -o knurled.3mf --texture knurl --tile 6 --depth 0.8 --mapping cylindrical
+cargo run --release -p texgrove-cli -- apply model.stl -o knurled.3mf --texture knurl --tile 6 --depth 0.8 --mapping cylindrical --where outside
 ```
 
 ## Development

@@ -16,7 +16,7 @@ daneben gibt es eine Kommandozeile.
 ```sh
 cargo run --release -p texgrove-cli -- diag modell.stl             # geschlossen? ein Stück? Außenseite außen?
 cargo run --release -p texgrove-cli -- convert modell.stl aus.3mf  # Punkte verbinden, STL oder 3MF schreiben
-cargo run --release -p texgrove-cli -- apply modell.stl -o raendel.3mf --texture knurl --tile 6 --depth 0.8 --mapping cylindrical
+cargo run --release -p texgrove-cli -- apply modell.stl -o raendel.3mf --texture knurl --tile 6 --depth 0.8 --mapping cylindrical --where outside
 ```
 
 ## Entwicklung

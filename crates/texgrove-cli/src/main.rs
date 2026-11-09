@@ -5,11 +5,16 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
+use texgrove_core::bvh::Bvh;
 use texgrove_core::displace::Relief;
 use texgrove_core::export::{stl, threemf};
+use texgrove_core::mask::{EXCLUDED, Mask};
 use texgrove_core::pattern::Pattern;
 use texgrove_core::pipeline::{self, Settings};
 use texgrove_core::project::{Mapping, Placement};
+use texgrove_core::quality::{self, Quality};
+use texgrove_core::select;
+use texgrove_core::topology::Topology;
 use texgrove_core::{Mesh, diagnostics, import, weld};
 
 #[derive(Parser)]
@@ -76,21 +81,51 @@ struct Apply {
     /// Turn the texture, in degrees.
     #[arg(long, default_value_t = 0.0)]
     rotation: f32,
-    /// The longest edge of the refined mesh in mm; by default half the pattern's finest feature.
+    /// How fine to work: the mesh's edge length and size follow from it, the texture and the nozzle.
+    #[arg(long, value_enum, default_value_t = QualityArg::Normal)]
+    quality: QualityArg,
+    /// The printer's nozzle width in mm.
+    #[arg(long, default_value_t = 0.4)]
+    nozzle: f32,
+    /// Where the texture goes: everywhere, only on what lies open to the outside, or only inside.
+    #[arg(long = "where", value_enum, default_value_t = WhereArg::All)]
+    place: WhereArg,
+    /// Leave out faces looking down within this many degrees (what lies on the bed); 0 for none.
+    #[arg(long, default_value_t = 5.0)]
+    bottom_angle: f32,
+    /// Leave out faces looking up within this many degrees; 0 for none.
+    #[arg(long, default_value_t = 0.0)]
+    top_angle: f32,
+    /// Let the texture run out over this many mm towards everything that stays in place.
+    #[arg(long, default_value_t = 0.0)]
+    falloff: f32,
+    /// Instead of the quality's choice: the longest edge of the refined mesh in mm.
     #[arg(long)]
     edge: Option<f32>,
-    /// The most triangles while refining; edges get longer to stay below.
-    #[arg(long, default_value_t = 10_000_000)]
-    max_triangles: usize,
-    /// The most triangles the result may have; 0 keeps them all.
-    #[arg(long, default_value_t = 1_000_000)]
-    triangles: usize,
-    /// Below that, still take away what moves the surface by less than this many mm.
-    #[arg(long, default_value_t = 0.005)]
-    tolerance: f32,
+    /// Instead of the quality's choice: the most triangles the result may have; 0 keeps them all.
+    #[arg(long)]
+    triangles: Option<usize>,
+    /// Instead of the quality's choice: below the budget, take away what moves the surface by
+    /// less than this many mm.
+    #[arg(long)]
+    tolerance: Option<f32>,
     /// Let the model's sharp edges move with the texture.
     #[arg(long)]
     free_edges: bool,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum QualityArg {
+    Draft,
+    Normal,
+    Fine,
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum WhereArg {
+    All,
+    Outside,
+    Inside,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -130,6 +165,36 @@ fn run(command: Command) -> Result<(), String> {
             let pattern = Pattern::from_id(&apply.texture)
                 .ok_or_else(|| format!("no pattern \"{}\"; there are: {}", apply.texture, pattern_names()))?;
             let source = load(&apply.input)?.mesh;
+            let map = pattern.render(1024);
+            let quality = match apply.quality {
+                QualityArg::Draft => Quality::Draft,
+                QualityArg::Normal => Quality::Normal,
+                QualityArg::Fine => Quality::Fine,
+            };
+            let mut finish = quality::finish(quality, apply.tile * pattern.detail(), apply.nozzle);
+            if let Some(edge) = apply.edge {
+                finish.max_edge = edge;
+            }
+            if let Some(triangles) = apply.triangles {
+                finish.triangles = if triangles == 0 { usize::MAX } else { triangles };
+            }
+            if let Some(tolerance) = apply.tolerance {
+                finish.tolerance = tolerance;
+            }
+            finish.protect_edges = !apply.free_edges;
+            let mut mask = Mask {
+                top_degrees: apply.top_angle,
+                bottom_degrees: apply.bottom_angle,
+                falloff: apply.falloff,
+                ..Mask::default()
+            };
+            if apply.place != WhereArg::All {
+                let inside = select::inside(&source, &Topology::build(&source), &Bvh::build(&source), 30.0);
+                let wanted = apply.place == WhereArg::Inside;
+                mask.faces = inside.iter().map(|inside| if *inside == wanted { 0 } else { EXCLUDED }).collect();
+                let kept = mask.faces.iter().filter(|mark| **mark == 0).count();
+                println!("  textured faces   {kept} of {} ({})", source.triangles.len(), apply.place_name());
+            }
             let settings = Settings {
                 mapping: match apply.mapping {
                     MappingArg::Triplanar => Mapping::default(),
@@ -142,20 +207,16 @@ fn run(command: Command) -> Result<(), String> {
                 },
                 placement: Placement { tile: apply.tile, rotation: apply.rotation, ..Placement::default() },
                 relief: Relief { depth: apply.depth, midlevel: apply.midlevel, invert: apply.invert },
-                max_edge: apply.edge.unwrap_or((apply.tile * pattern.detail() / 2.0).max(0.1)),
-                max_triangles: apply.max_triangles,
-                protect_edges: !apply.free_edges,
-                triangles: if apply.triangles == 0 { usize::MAX } else { apply.triangles },
-                tolerance: apply.tolerance,
-                ..Settings::default()
+                mask,
+                finish,
             };
             let started = Instant::now();
-            let textured = pipeline::texture(&source, &pattern.render(1024), &settings);
+            let textured = pipeline::texture(&source, &map, &settings);
             let took = started.elapsed();
-            if textured.edge > settings.max_edge {
+            if textured.edge > settings.finish.max_edge {
                 println!(
-                    "refined to {:.2} mm instead of {:.2} mm to stay near {} triangles",
-                    textured.edge, settings.max_edge, settings.max_triangles
+                    "  (edges of {:.2} mm were asked for; that would have been too many triangles)",
+                    settings.finish.max_edge
                 );
             }
             println!("  refined to       {} triangles, {:.2} mm edges", textured.refined_triangles, textured.edge);
@@ -176,6 +237,16 @@ fn run(command: Command) -> Result<(), String> {
             std::fs::write(&output, &bytes).map_err(|e| format!("cannot write {}: {e}", output.display()))?;
             println!("{}: {} × {}", output.display(), map.width(), map.height());
             Ok(())
+        }
+    }
+}
+
+impl Apply {
+    fn place_name(&self) -> &'static str {
+        match self.place {
+            WhereArg::All => "everywhere",
+            WhereArg::Outside => "outside only",
+            WhereArg::Inside => "inside only",
         }
     }
 }

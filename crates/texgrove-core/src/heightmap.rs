@@ -131,6 +131,39 @@ impl Heightmap {
         below * (1.0 - fy) + above * fy
     }
 
+    /// The size of the map's finest features as a part of the tile's width: how far one has to
+    /// go, where the map is steepest, to get from its lowest to its highest value. A mesh needs
+    /// edges of about half of that to show the texture cleanly.
+    pub fn detail(&self) -> f32 {
+        let (low, high) =
+            self.values.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(l, h), &v| (l.min(v), h.max(v)));
+        let range = high - low;
+        if range.is_nan() || range <= 1e-6 {
+            return 1.0; // flat: nothing to show
+        }
+        // Slopes between neighbouring cells, per tile width, both ways.
+        let (w, h) = (self.width as i64, self.height as i64);
+        let per_u = self.width as f32;
+        let per_v = self.height as f32 / self.aspect.max(1e-6);
+        let mut slopes = Vec::with_capacity(self.values.len());
+        for y in 0..h {
+            for x in 0..w {
+                let here = self.cell(x, y, Tiling::Repeat);
+                let along = (self.cell(x + 1, y, Tiling::Repeat) - here) * per_u;
+                let up = (self.cell(x, y + 1, Tiling::Repeat) - here) * per_v;
+                slopes.push(libm::sqrtf(along * along + up * up));
+            }
+        }
+        // The steepest places decide, but not a single stray cell: the slope only one cell in
+        // twenty exceeds.
+        let rank = slopes.len() - 1 - slopes.len() / 20;
+        let (_, steep, _) = slopes.select_nth_unstable_by(rank, |a, b| a.total_cmp(b));
+        if *steep <= 0.0 {
+            return 1.0;
+        }
+        (range / *steep).clamp(2.0 / self.width as f32, 1.0)
+    }
+
     /// The map smoothed over about `radius` cells (three passes of a running mean, which is close
     /// to a Gaussian blur), running round the edges as the tiling says.
     pub fn blurred(&self, radius: f32, tiling: Tiling) -> Heightmap {
@@ -223,6 +256,22 @@ mod tests {
         assert_eq!(map.aspect, 2.0);
         assert_eq!(map.to_grey(), vec![255, 0]);
         assert_eq!(map.sample(0.5, 0.75, Tiling::Repeat), 1.0);
+    }
+
+    #[test]
+    fn detail_is_the_way_from_low_to_high_where_it_is_steepest() {
+        // A tent over the tile: half a tile from bottom to top, everywhere.
+        let tent = Heightmap::from_fn(256, 4, |u, _| 1.0 - (2.0 * u - 1.0).abs());
+        assert!((tent.detail() - 0.5).abs() < 0.02, "{}", tent.detail());
+        // Stripes with edges a twentieth of the tile wide.
+        let stripes = Heightmap::from_fn(512, 4, |u, _| (((u - 0.5).abs() - 0.2) / 0.05 + 0.5).clamp(0.0, 1.0));
+        assert!((stripes.detail() - 0.05).abs() < 0.01, "{}", stripes.detail());
+        // The same picture on a tile twice as tall has features twice as large along v.
+        let across = Heightmap::from_fn(4, 256, |_, v| 1.0 - (2.0 * v - 1.0).abs());
+        assert!((across.detail() - 0.5).abs() < 0.02);
+        assert!((across.clone().with_aspect(2.0).detail() - 1.0).abs() < 0.04);
+        // Nothing to show.
+        assert_eq!(Heightmap::new(2, 2, vec![0.3; 4]).unwrap().detail(), 1.0);
     }
 
     #[test]

@@ -23,4 +23,12 @@ The mesh kernel.
 - **Reducing**: the textured mesh is brought down to a triangle budget by pulling together the
   edges that change the shape least; rims, holes and sharp edges stay, and flat stretches go
   back to a few triangles by themselves.
+- **Where the texture goes**: leave out what looks down (so a part still lies flat) or up, pick
+  faces, brush places in or out with a soft or hard rim, let the texture run out towards what
+  stays. A part's inside (a bore, the inside of a cup) is found by itself, so only the outside
+  or only the inside gets texture; a click picks a whole smooth surface up to its sharp edges.
+- **Layers**: several textures on one model, each with its own mask, covering or adding to those
+  below.
+- **Quality**: draft, normal and fine choose the mesh's fineness and size from the texture's
+  finest feature and the printer's nozzle.
 - **Command line**: `texgrove diag`, `texgrove convert`, `texgrove apply`, `texgrove pattern`.
