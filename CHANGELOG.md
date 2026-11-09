@@ -5,7 +5,12 @@ kernel carry the same number.
 
 ## Unreleased
 
-The mesh kernel.
+The mesh kernel, and the first Meshgrove panel.
+
+- **Plugin**: right-click models in Meshgrove's gallery and choose "Apply texture …"; the panel
+  shows a preview, offers the patterns as pictures, where the texture goes (everywhere, outside
+  only, inside only, bottom left smooth) and the quality, and puts each textured file beside its
+  model, tagged "Textured" and with every setting in its note.
 
 - **Welding**: the vertices of a triangle soup (an STL) become shared vertices.
 - **Edges and normals**: which triangles meet where, sharp edges, one normal per vertex that does

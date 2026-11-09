@@ -70,7 +70,31 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
 über die Kantenlänge nur grob treffen; das Budget fürs Ergebnis macht das Reduzieren.
 
 ## M3 Plugin-API 0.2 Teil 1 (Host, eigene Session)
+- [x] Fertig auf Branch `claude/happy-mahavira-d8760c` im MeshGrove-Repo (12 Commits, 09.11.,
+      nicht gepusht, nicht in main); Tests von mir nachgeprüft (285 grün)
+- [ ] Oberfläche des Branches in einer echten Sitzung prüfen (Mehrfach-Rechtsklick, Dialoge, Review)
+- [ ] Teiletausch-3MF im Anycubic Slicer laden (Davis)
+- [ ] Merge nach main und 0.9.0 mit der main-Session abstimmen (Davis entscheidet)
+
 ## M4 Plugin-Grundstock ohne Malen
+- [x] Crate `texgrove-plugin` (eigener Workspace, `.cargo/config.toml` patcht die API lokal auf
+      den Worktree; `scripts/build.sh` mit simd128) – 1,2 MB wasm
+- [x] Manifest (API 0.2, `receive: ids` für stl/3mf/obj/ply/step/stp/glb/gltf, 3584 MB), de/en
+- [x] Panel: Modelle (Rechtsklick, Dateidialog nach `/data/picked`, Suche), Galerie mit
+      Vorschaubildern aus den Mustern, Auftragen/Kachel/Tiefe/Richtung/Drehung/Invertieren,
+      **Wohin: Überall / Nur außen / Nur innen** + Unterseite/Oberseite frei, Qualität, Format
+- [x] Vorschau-Job (grob, ≤ 600 k Dreiecke, ohne Reduzieren) mit Cache in `/data/preview`
+- [x] Export-Jobs nacheinander, ein Bündel je Bibliothek (`next_to`, Tag „Texturiert“, Notiz mit
+      allen Einstellungen); Dateien von außerhalb → Ordner „Texgrove“ im Import
+- [x] `meshgrove-plugin-run`: Vorschau Würfel 0,4 s; Export Würfel 2,3 s, Adapter (nur außen,
+      4,1 M → 1 M) 27 s im wasm
+- [x] Rundlauf in isolierter Meshgrove-Sitzung (Debug-Build des API-0.2-Branches, eigene XDG-Ordner,
+      „Bibliothek lesen“ = nein): Rechtsklick → „Textur auftragen …“ → Panel mit Vorschau →
+      Ziegel → „Textur auftragen“ → `wuerfel – Ziegel.3mf` neben dem Original, Tag „Texturiert“,
+      Notiz mit allen Einstellungen, Undo-Eintrag; Meshgroves Prüfung: geschlossen, 1 Teil
+      (`out/panel.png`, `out/panel-ergebnis.png`)
+- [ ] Mehrteilige 3MF: Teile wählen + `derive_3mf` (Rest bleibt unverändert)
+- [ ] Fortschritt der Vorschau beim Schieben von Reglern beobachten (Jobs abbrechen/neu)
 ## M5 Textur-Bestand (CC0, Hero Patterns, eigene)
 ## M6 Plugin-API 0.2 Teil 2 (Malen, Overlay, Performance)
 ## M7 Masken und Ebenen

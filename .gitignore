@@ -1,3 +1,3 @@
 target/
 /out
-.cargo/config.toml
+crates/texgrove-plugin/local-api.toml

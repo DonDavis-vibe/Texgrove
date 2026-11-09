@@ -16,7 +16,9 @@ if [ -x "$rustup" ]; then
     toolchain_bin=$(dirname "$("$rustup" which --toolchain stable rustc)")
     export PATH="$toolchain_bin:$PATH" RUSTUP_TOOLCHAIN=stable
 fi
+local_api=()
+[ -f crates/texgrove-plugin/local-api.toml ] && local_api=(--config crates/texgrove-plugin/local-api.toml)
 cargo fmt --manifest-path crates/texgrove-plugin/Cargo.toml --check
-cargo clippy --manifest-path crates/texgrove-plugin/Cargo.toml --target wasm32-wasip2 \
+cargo clippy ${local_api[@]+"${local_api[@]}"} --manifest-path crates/texgrove-plugin/Cargo.toml --target wasm32-wasip2 \
     --target-dir target/plugin -- -D warnings
 scripts/build.sh

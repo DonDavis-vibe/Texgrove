@@ -1,0 +1,36 @@
+[package]
+name = "texgrove-plugin"
+description = "Texgrove as a Meshgrove plugin: textures as real geometry on library models"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+authors = ["Davis (German Redneck Engineering)"]
+homepage = "https://redneck-design.de/"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+texgrove-core = { path = "../texgrove-core" }
+# The plugin API of Meshgrove 0.9.0 (API 0.2). Until 0.9.0 is tagged it comes from a local
+# checkout of the branch that has it: put
+#   [patch."https://github.com/DonDavis-vibe/MeshGrove"]
+#   meshgrove-plugin-api = { path = "/path/to/MeshGrove/crates/meshgrove-plugin-api" }
+# into crates/texgrove-plugin/local-api.toml (not committed); scripts/build.sh and check.sh pass
+# it to cargo. Then pin `tag = "v0.9.0"`.
+meshgrove-plugin-api = { git = "https://github.com/DonDavis-vibe/MeshGrove", branch = "main", features = ["guest"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+png = { version = "0.18", default-features = false }
+base64 = "0.22"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+# Not part of the native workspace: built for wasm32-wasip2 (scripts/build.sh).
+[workspace]
