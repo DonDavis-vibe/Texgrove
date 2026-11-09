@@ -159,16 +159,24 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       endgültige Bündel trägt); Recht `ai_tools` im Manifest
 - [x] Mit `meshgrove-plugin-run` geprüft: `tools`, `inspect`, `preview` (0,3 s); CLI `--picture`
       zeigt dasselbe Bild (`out/ki-vorschau.png`)
-- [ ] Host H (Jobs aus Werkzeugen): Auftrag an die Host-Session (09.11.), danach `apply` Ende zu
-      Ende prüfen (plugin-run `call apply`, MCP, Chat)
+- [x] Host H (Jobs aus Werkzeugen) ist im Host-Branch; `apply` Ende zu Ende geprüft (09.11.):
+      plugin-run `call apply`; über `meshgrove-mcp` in der isolierten Sitzung: ohne „Bibliothek
+      lesen“ klare Absage, mit dem Recht `search_models` → `texgrove_inspect` → `texgrove_apply`
+      („started, arrives: review“), der MCP-Prozess wartet beim Schließen auf den Job (6 s), der
+      Vorschlag „rohr – Waben“ steht in Meshgroves Prüfung und landet nach „Alle annehmen“ neben
+      dem Original (`out/ki-review.png`). Offen: Statusleiste/Toast beim Chat im Fenster.
 
 ## M10 Fertigstellen
 - [x] Zeiten im Plugin (wasm, `meshgrove-plugin-run job export`, 09.11.): 100-mm-Würfel Waben
       10 mm Normal 10 s (2,6 M → 476 k), Fein 19 s (5,2 M → 933 k); Adapter Rändel nur außen 18 s
       (4,1 M → 1 M); Adapter Leder Entwurf 10 s; Spitzenverbrauch unter 0,9 GB – alle Ziele gehalten
 - [x] README de/en, `install-into-meshgrove.sh`, `release-notes.sh`
-- [ ] CI/Release-Workflows (erst mit Meshgrove 0.9.0: vorher baut das Plugin dort nicht)
-- [ ] Grafiken (Krea 2 Turbo über ComfyUI), README, CHANGELOG, CI/Release
+- [x] CI/Release-Workflows geschrieben (`.github/workflows`): CI läuft bis Meshgrove 0.9.0 nur von
+      Hand oder bei Pull Requests (vorher baut das Plugin dort nicht), Release bei einem Tag `v*`,
+      kein Artefakt-Upload
+- [ ] Mit Meshgrove 0.9.0: API auf `tag = "v0.9.0"` pinnen, CI bei Push auf main einschalten,
+      Version 1.0.0 in beiden `Cargo.toml` und im CHANGELOG
+- [ ] Grafiken (Krea 2 Turbo über ComfyUI; ComfyUI muss laufen)
 - [ ] **Test unter Linux ganz normal lokal** (Davis, 09.11.)
 - [ ] **Test in der Windows-VM** (Davis, 09.11.: „vor allem auch“)
 - [ ] Info an CNC Kitchen (Text entwerfen, Davis schickt)

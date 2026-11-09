@@ -1,0 +1,47 @@
+name: Release
+
+# A tag v* publishes the plugin as a full release: the .wasm, its checksum and the notes of that
+# version from CHANGELOG.md.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  plugin:
+    name: Build and publish texgrove.wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      # No cache: one saved by a tag's run can be read by that tag alone, and the build is short.
+      - name: The tag is the version of the plugin
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          grep -q "^version = \"$version\"$" crates/texgrove-plugin/Cargo.toml \
+            || { echo "crates/texgrove-plugin/Cargo.toml is not at $version"; exit 1; }
+      - name: Build the plugin
+        run: scripts/build.sh
+      - name: Checksum
+        run: |
+          cd target/plugin
+          sha256sum texgrove.wasm > texgrove.wasm.sha256
+          cat texgrove.wasm.sha256
+      - name: Notes from the changelog
+        id: notes
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          scripts/release-notes.sh "$version" > notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Texgrove ${{ steps.notes.outputs.version }}
+          body_path: notes.md
+          prerelease: false
+          files: |
+            target/plugin/texgrove.wasm
+            target/plugin/texgrove.wasm.sha256

@@ -1,0 +1,57 @@
+name: CI
+
+# Until Meshgrove 0.9.0 is tagged, the plugin API this plugin needs is on no public branch, so the
+# plugin cannot build here and nothing starts by itself. With the tag pinned in
+# crates/texgrove-plugin/Cargo.toml, add:
+#   push:
+#     branches: [main]
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Format, clippy, tests, plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+          components: rustfmt, clippy
+      # Only main saves a cache: one made by a pull request serves that pull request alone.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            crates/texgrove-plugin -> ../../target/plugin
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Everything check.sh checks
+        run: scripts/check.sh
+      # The plugin is not kept as an artifact: releases carry it, and artifacts fill the storage.
+      - name: Size of the plugin
+        run: ls -l target/plugin/texgrove.wasm
+
+  # A changed Cargo.lock or a new Rust makes a new cache and leaves the old one lying until
+  # GitHub drops it a week later. After a run on main, only the newest is kept.
+  tidy:
+    name: Drop old caches
+    needs: check
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keep the newest cache, delete the rest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh cache list --limit 100 --sort created_at --order desc --json id,key \
+            --jq '.[1:][] | "\(.id) \(.key)"' | while read -r id key; do
+              echo "deleting $key"
+              gh cache delete "$id"
+            done
