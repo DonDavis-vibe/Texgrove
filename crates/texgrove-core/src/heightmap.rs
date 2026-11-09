@@ -164,6 +164,19 @@ impl Heightmap {
         (range / *steep).clamp(2.0 / self.width as f32, 1.0)
     }
 
+    /// The map stretched so its lowest value is 0 and its highest 1: a photo that only spans
+    /// greys gets its full depth. A flat map stays as it is.
+    pub fn normalized(&self) -> Heightmap {
+        let (low, high) =
+            self.values.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(l, h), &v| (l.min(v), h.max(v)));
+        if high - low <= 1e-6 || (low == 0.0 && high == 1.0) {
+            return self.clone();
+        }
+        let scale = 1.0 / (high - low);
+        let values = self.values.iter().map(|v| ((v - low) * scale).clamp(0.0, 1.0)).collect();
+        Heightmap { values, ..self.clone() }
+    }
+
     /// The map smoothed over about `radius` cells (three passes of a running mean, which is close
     /// to a Gaussian blur), running round the edges as the tiling says.
     pub fn blurred(&self, radius: f32, tiling: Tiling) -> Heightmap {
@@ -272,6 +285,19 @@ mod tests {
         assert!((across.clone().with_aspect(2.0).detail() - 1.0).abs() < 0.04);
         // Nothing to show.
         assert_eq!(Heightmap::new(2, 2, vec![0.3; 4]).unwrap().detail(), 1.0);
+    }
+
+    #[test]
+    fn normalizing_spreads_the_greys() {
+        let grey = Heightmap::new(3, 1, vec![0.4, 0.5, 0.6]).unwrap();
+        let spread = grey.normalized();
+        assert!(
+            spread.values().iter().zip([0.0, 0.5, 1.0]).all(|(a, b)| (a - b).abs() < 1e-5),
+            "{:?}",
+            spread.values()
+        );
+        let flat = Heightmap::new(2, 1, vec![0.3, 0.3]).unwrap();
+        assert_eq!(flat.normalized(), flat);
     }
 
     #[test]

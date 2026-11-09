@@ -11,6 +11,11 @@ The mesh kernel, and the first Meshgrove panel.
   shows a preview, offers the patterns as pictures, where the texture goes (everywhere, outside
   only, inside only, bottom left smooth) and the quality, and puts each textured file beside its
   model, tagged "Textured" and with every setting in its note.
+- **Slicer projects**: a 3MF with several objects lists them; only the ticked ones get the
+  texture, and Meshgrove swaps just those into a copy of the project, so plates, profiles and the
+  other objects stay as they were.
+- **Your own pictures**: a PNG or JPEG becomes a texture (bright is high), kept for next time,
+  with smoothing for grainy photos.
 
 - **Welding**: the vertices of a triangle soup (an STL) become shared vertices.
 - **Edges and normals**: which triangles meet where, sharp edges, one normal per vertex that does

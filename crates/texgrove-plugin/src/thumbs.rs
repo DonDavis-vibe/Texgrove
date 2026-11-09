@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use base64::Engine;
-use texgrove_core::heightmap::Tiling;
+use texgrove_core::heightmap::{Heightmap, Tiling};
 use texgrove_core::pattern::Pattern;
 
 /// Pixels a side.
@@ -13,16 +13,25 @@ const SIZE: u32 = 72;
 const TILES: f32 = 2.0;
 
 thread_local! {
-    static CACHE: RefCell<HashMap<Pattern, String>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
-/// The pattern as a base64 PNG, lit from the upper left so heights read as relief.
-pub fn of(pattern: Pattern) -> String {
-    CACHE.with(|cache| cache.borrow_mut().entry(pattern).or_insert_with(|| render(pattern)).clone())
+/// A texture (a built-in pattern's id, or one of the user's) as a base64 PNG, lit from the upper
+/// left so heights read as relief; `None` if it cannot be read.
+pub fn of(texture: &str) -> Option<String> {
+    if let Some(done) = CACHE.with(|cache| cache.borrow().get(texture).cloned()) {
+        return Some(done);
+    }
+    let map = match Pattern::from_id(texture) {
+        Some(pattern) => pattern.render(128),
+        None => crate::textures::map(texture).ok()?,
+    };
+    let picture = render(&map);
+    CACHE.with(|cache| cache.borrow_mut().insert(texture.to_owned(), picture.clone()));
+    Some(picture)
 }
 
-fn render(pattern: Pattern) -> String {
-    let map = pattern.render(128);
+fn render(map: &Heightmap) -> String {
     let rows = ((SIZE as f32) * map.aspect.min(1.0)).round().max(8.0) as u32;
     let mut pixels = Vec::with_capacity((SIZE * rows) as usize);
     let step = 1.0 / SIZE as f32;

@@ -20,8 +20,10 @@ use crate::lang::tr;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Recipe {
-    /// A built-in pattern's id.
+    /// A built-in pattern's id, or `own:<id>` for one of the user's pictures.
     pub texture: String,
+    /// Blurs the texture over this part of a tile (percent): softens a photo's grain.
+    pub smooth: f32,
     pub mapping: MappingChoice,
     /// The width of one tile in mm.
     pub tile: f32,
@@ -44,6 +46,7 @@ impl Default for Recipe {
     fn default() -> Self {
         Recipe {
             texture: "knurl".into(),
+            smooth: 0.0,
             mapping: MappingChoice::Triplanar,
             tile: 5.0,
             depth: 0.6,
@@ -271,18 +274,25 @@ pub fn pattern_label(pattern: Pattern) -> &'static str {
 }
 
 impl Recipe {
-    pub fn pattern(&self) -> Pattern {
-        Pattern::from_id(&self.texture).unwrap_or(Pattern::Knurl)
+    /// The built-in pattern, if the texture is one.
+    pub fn pattern(&self) -> Option<Pattern> {
+        Pattern::from_id(&self.texture)
     }
 
-    /// The height map of the texture.
-    pub fn map(&self) -> Heightmap {
-        self.pattern().render(1024)
+    /// The height map of the texture, smoothed as asked.
+    pub fn map(&self) -> Result<Heightmap, String> {
+        let map = crate::textures::map(&self.texture)?;
+        let radius = self.smooth.clamp(0.0, 25.0) / 100.0 * map.width() as f32;
+        Ok(if radius >= 0.5 { map.blurred(radius, texgrove_core::heightmap::Tiling::Repeat) } else { map })
     }
 
     /// The size of the finest thing the texture shows, in mm.
-    pub fn feature(&self) -> f32 {
-        self.tile.max(0.1) * self.pattern().detail()
+    pub fn feature(&self, map: &Heightmap) -> f32 {
+        let detail = match self.pattern() {
+            Some(pattern) if self.smooth <= 0.0 => pattern.detail(),
+            _ => map.detail(),
+        };
+        self.tile.max(0.1) * detail
     }
 
     fn relief(&self) -> Relief {
@@ -306,14 +316,14 @@ impl Recipe {
     }
 
     /// The kernel's settings for the file to keep: the quality's fineness for this nozzle.
-    pub fn settings(&self, source: &Mesh, nozzle: f32) -> Settings {
-        let finish = quality::finish(self.quality.quality(), self.feature(), nozzle);
+    pub fn settings(&self, source: &Mesh, nozzle: f32, map: &Heightmap) -> Settings {
+        let finish = quality::finish(self.quality.quality(), self.feature(map), nozzle);
         self.with_finish(source, finish)
     }
 
     /// The kernel's settings for a quick look: at most about `budget` triangles, nothing reduced.
-    pub fn preview_settings(&self, source: &Mesh, nozzle: f32, budget: usize) -> Settings {
-        let draft = quality::finish(Quality::Draft, self.feature(), nozzle);
+    pub fn preview_settings(&self, source: &Mesh, nozzle: f32, budget: usize, map: &Heightmap) -> Settings {
+        let draft = quality::finish(Quality::Draft, self.feature(map), nozzle);
         let finish = Finish { max_triangles: budget, triangles: usize::MAX, tolerance: 0.0, ..draft };
         self.with_finish(source, finish)
     }
@@ -332,7 +342,7 @@ impl Recipe {
     pub fn describe(&self) -> String {
         use crate::lang::number;
         let mut parts = vec![
-            pattern_label(self.pattern()).to_owned(),
+            crate::textures::name(&self.texture),
             crate::tf!("Kachel {} mm", "tile {} mm", number(self.tile, 1)),
             crate::tf!("Tiefe {} mm", "depth {} mm", number(self.depth, 2)),
             self.relief.label().to_lowercase(),
@@ -341,6 +351,9 @@ impl Recipe {
         ];
         if self.rotation != 0.0 {
             parts.push(crate::tf!("gedreht um {}°", "turned by {}°", number(self.rotation, 0)));
+        }
+        if self.smooth > 0.0 {
+            parts.push(crate::tf!("geglättet {} %", "smoothed {} %", number(self.smooth, 1)));
         }
         if self.invert {
             parts.push(tr("umgekehrt", "inverted").into());

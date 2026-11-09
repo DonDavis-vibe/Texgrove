@@ -93,9 +93,21 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       Ziegel → „Textur auftragen“ → `wuerfel – Ziegel.3mf` neben dem Original, Tag „Texturiert“,
       Notiz mit allen Einstellungen, Undo-Eintrag; Meshgroves Prüfung: geschlossen, 1 Teil
       (`out/panel.png`, `out/panel-ergebnis.png`)
-- [ ] Mehrteilige 3MF: Teile wählen + `derive_3mf` (Rest bleibt unverändert)
+- [x] Mehrteilige 3MF: Teile per Häkchen, Vorschau setzt jedes Teil an seinen Platz, Export
+      texturiert die gewählten Teile in eigenen Koordinaten (Dreiecksbudget nach Fläche geteilt) →
+      `derive_3mf`; geprüft an Davis' Bambu-Projekt mit 7 Teilen: nur das gewählte Objekt geändert,
+      Einstellungen/Platten byte-gleich, Plattenbilder geleert (`out/helmhalter_teil_getauscht.3mf`)
+- [ ] Davis: `out/helmhalter_teil_getauscht.3mf` im Anycubic Slicer laden
 - [ ] Fortschritt der Vorschau beim Schieben von Reglern beobachten (Jobs abbrechen/neu)
 ## M5 Textur-Bestand (CC0, Hero Patterns, eigene)
+- [x] Kern: PNG/JPEG → Höhenkarte (`picture`, Helligkeit, Transparenz = schwarz, ≤ 1024 px),
+      `Heightmap::normalized`
+- [x] Plugin: „Eigenes Bild …“ (Dateidialog nach `/data/picked`), als Graustufen-PNG in
+      `/data/textures` gemerkt, in der Galerie, „Entfernen“; „Glätten“ in % der Kachel
+- [x] Eigene Textur im Export-Job geprüft (Kiesel-Foto auf Würfel)
+- [ ] Dateidialog selbst nicht im Test geklickt (öffnet über das Portal auf dem echten Desktop)
+- [ ] CC0-Bilder (Poly Haven/ambientCG) und Hero Patterns herunterladen – Davis' Zustimmung nötig
+- [ ] Favoriten (Stern)
 ## M6 Plugin-API 0.2 Teil 2 (Malen, Overlay, Performance)
 ## M7 Masken und Ebenen
 ## M8 Erweiterte Projektionen

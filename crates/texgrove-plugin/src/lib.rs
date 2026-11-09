@@ -10,6 +10,7 @@
 mod lang;
 mod panel;
 mod recipe;
+mod textures;
 mod thumbs;
 mod work;
 

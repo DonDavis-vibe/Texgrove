@@ -28,6 +28,8 @@ pub mod mask;
 pub mod mesh;
 pub mod normals;
 pub mod pattern;
+#[cfg(feature = "pictures")]
+pub mod picture;
 pub mod pipeline;
 pub mod project;
 pub mod quality;

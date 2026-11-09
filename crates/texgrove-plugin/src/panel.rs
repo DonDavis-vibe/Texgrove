@@ -7,7 +7,7 @@ use meshgrove_plugin_api::guest::{self, GuestPanel, MeshData, library};
 use meshgrove_plugin_api::ui::{
     Choice, Effect, Event, FormRow, JobSpec, Level, Node, TableColumn, TableRow, TextStyle, Unit, View,
 };
-use meshgrove_plugin_api::{Bundle, BundleFile, HostInfo};
+use meshgrove_plugin_api::{Bundle, BundleFile, Derive3mf, HostInfo, PartMesh};
 use serde::{Deserialize, Serialize};
 use texgrove_core::pattern::Pattern;
 
@@ -95,13 +95,20 @@ impl TexturePanel {
             Event::ModelsOpened { ids } => {
                 let first = s.sources.len();
                 for id in ids {
-                    s.add(Source { name: file_name(&id), reference: id });
+                    s.add(Source { name: file_name(&id), reference: id, ..Source::default() });
                 }
                 s.selected = first.min(s.sources.len().saturating_sub(1));
                 changed = true;
             }
+            Event::FilePicked { id, name, path } if id == "picture" => match crate::textures::add(&path, &name) {
+                Ok(texture) => {
+                    s.recipe.texture = texture;
+                    changed = true;
+                }
+                Err(e) => s.message = Some((Level::Error, e)),
+            },
             Event::FilePicked { name, path, .. } => {
-                s.add(Source { reference: path, name });
+                s.add(Source { reference: path, name, ..Source::default() });
                 s.selected = s.sources.len() - 1;
                 changed = true;
             }
@@ -124,6 +131,23 @@ impl TexturePanel {
                         let at = s.selected;
                         s.sources.remove(at);
                         s.selected = s.selected.min(s.sources.len().saturating_sub(1));
+                        changed = true;
+                    }
+                    "own" => effects.push(Effect::OpenFileDialog {
+                        id: "picture".into(),
+                        title: Some(
+                            tr("Bild als Textur wählen (hell = hoch)", "Choose a picture as texture (bright = high)")
+                                .into(),
+                        ),
+                        extensions: ["png", "jpg", "jpeg"].map(String::from).to_vec(),
+                        multiple: false,
+                        into: meshgrove_plugin_api::ui::PickInto::Data,
+                    }),
+                    "forget" if s.recipe.texture.starts_with(crate::textures::OWN) => {
+                        if let Err(e) = crate::textures::remove(&s.recipe.texture) {
+                            s.message = Some((Level::Error, e));
+                        }
+                        s.recipe.texture = "knurl".into();
                         changed = true;
                     }
                     "plain" => {
@@ -217,17 +241,27 @@ impl PanelState {
         };
     }
 
-    /// Adds a model unless it is there already.
-    fn add(&mut self, source: Source) {
+    /// Adds a model unless it is there already; a 3MF with the objects it is made of.
+    fn add(&mut self, mut source: Source) {
         if let Some(i) = self.sources.iter().position(|s| s.reference == source.reference) {
             self.selected = i;
         } else {
+            source.find_parts();
             self.sources.push(source);
         }
     }
 
     /// Takes a changed setting; whether the preview has to follow.
     fn change(&mut self, id: &str, value: &serde_json::Value) -> bool {
+        if let Some(index) = id.strip_prefix("part:").and_then(|i| i.parse::<usize>().ok()) {
+            let Some(source) = self.sources.get_mut(self.selected) else { return false };
+            let Some(token) = source.parts.get(index).map(|p| p.token.clone()) else { return false };
+            source.skipped.retain(|t| *t != token);
+            if value.as_bool() == Some(false) {
+                source.skipped.push(token);
+            }
+            return true;
+        }
         let number = value.as_f64().map(|v| v as f32).filter(|v| v.is_finite());
         let text = value.as_str().unwrap_or_default();
         let r = &mut self.recipe;
@@ -235,6 +269,7 @@ impl PanelState {
             ("tile", Some(v)) => r.tile = v.clamp(0.2, 200.0),
             ("depth", Some(v)) => r.depth = v.clamp(0.0, 20.0),
             ("rotation", Some(v)) => r.rotation = v.clamp(-360.0, 360.0),
+            ("smooth", Some(v)) => r.smooth = v.clamp(0.0, 25.0),
             ("bottom", Some(v)) => r.bottom = v.clamp(0.0, 90.0),
             ("top", Some(v)) => r.top = v.clamp(0.0, 90.0),
             ("mapping", _) => r.mapping = MappingChoice::from_id(text).unwrap_or(r.mapping),
@@ -285,8 +320,10 @@ impl PanelState {
         };
         let plain = format!("p-{}", work::cache_key(&source.reference));
         let look = Recipe { quality: QualityChoice::Normal, format: Format::ThreeMf, ..self.recipe.clone() };
+        // The parts left out change the look as well.
         let key = work::cache_key(&(
             &source.reference,
+            &source.skipped,
             serde_json::to_string(&look).unwrap_or_default(),
             self.host.nozzle.to_bits(),
         ));
@@ -400,7 +437,7 @@ impl PanelState {
         let source = &self.sources[i];
         let same = self.sources[..i].iter().filter(|s| s.stem() == source.stem()).count();
         let number = if same > 0 { format!(" {}", same + 1) } else { String::new() };
-        let texture = pattern_label(self.recipe.pattern());
+        let texture = crate::textures::name(&self.recipe.texture);
         let name = format!("{}{number} – {texture}.{}", source.stem(), self.recipe.format.extension());
         name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
     }
@@ -433,16 +470,26 @@ impl PanelState {
                     source.name,
                     lang::count(made.triangles),
                 );
+                // A 3MF whose objects were textured one by one: Meshgrove copies it and swaps them.
+                let derive_3mf = (!made.replace.is_empty()).then(|| Derive3mf {
+                    source: source.reference.clone(),
+                    replace: made
+                        .replace
+                        .iter()
+                        .map(|(part, mesh)| PartMesh { part: part.clone(), mesh: mesh.clone() })
+                        .collect(),
+                });
                 BundleFile {
                     path: made.file.clone(),
                     note: Some(note),
                     next_to: in_library.then(|| source.reference.clone()),
+                    derive_3mf,
                     ..BundleFile::default()
                 }
             })
             .collect::<Vec<_>>();
         self.batch.handed += files.len();
-        let texture = pattern_label(self.recipe.pattern());
+        let texture = crate::textures::name(&self.recipe.texture);
         let title = match &done[..] {
             [(i, _)] => format!("{} – {texture}", self.sources[*i].stem()),
             more => tf!("{} auf {} Modellen", "{} on {} models", texture, more.len()),
@@ -484,7 +531,7 @@ fn hits(value: &serde_json::Value) -> Vec<Source> {
         .filter_map(|hit| {
             let id = hit.get("id")?.as_str()?.to_owned();
             let name = hit.get("name").and_then(|n| n.as_str()).map_or_else(|| file_name(&id), str::to_owned);
-            Some(Source { reference: id, name })
+            Some(Source { reference: id, name, ..Source::default() })
         })
         .collect()
 }
@@ -627,23 +674,58 @@ impl PanelState {
             });
         }
 
+        if let Some(source) = self.sources.get(self.selected).filter(|s| s.parts.len() > 1) {
+            let mut boxes = vec![Node::Label {
+                text: tr(
+                    "Nur die angehakten Teile bekommen die Textur; als 3MF bleibt der Rest der Datei, wie er ist.",
+                    "Only the ticked parts get the texture; as 3MF the rest of the file stays as it is.",
+                )
+                .into(),
+                style: TextStyle::Small,
+            }];
+            boxes.extend(source.parts.iter().enumerate().map(|(i, part)| Node::Checkbox {
+                id: format!("part:{i}"),
+                label: tf!("{} ({} Dreiecke)", "{} ({} triangles)", part.name, lang::count(part.triangles as usize)),
+                checked: !source.skipped.contains(&part.token),
+                enabled: true,
+            }));
+            children.push(Node::Group { title: Some(tr("Teile", "Parts").into()), collapsible: true, children: boxes });
+        }
+
         children.push(Node::Separator);
         children.push(Node::heading(tr("Textur", "Texture")));
-        let tiles: Vec<Node> = Pattern::ALL
+        let mut textures: Vec<(String, String)> =
+            Pattern::ALL.iter().map(|p| (p.id().to_owned(), pattern_label(*p).to_owned())).collect();
+        textures.extend(
+            crate::textures::list().into_iter().map(|own| (format!("{}{}", crate::textures::OWN, own.id), own.name)),
+        );
+        let tiles: Vec<Node> = textures
             .iter()
-            .map(|&p| Node::Image {
-                data: crate::thumbs::of(p),
-                mime: "image/png".into(),
-                width: Some(72.0),
-                alt: Some(pattern_label(p).into()),
-                id: Some(format!("texture:{}", p.id())),
-                selected: r.pattern() == p,
+            .filter_map(|(id, name)| {
+                Some(Node::Image {
+                    data: crate::thumbs::of(id)?,
+                    mime: "image/png".into(),
+                    width: Some(72.0),
+                    alt: Some(name.clone()),
+                    id: Some(format!("texture:{id}")),
+                    selected: r.texture == *id,
+                })
             })
             .collect();
         for line in tiles.chunks(5) {
             children.push(Node::row(line.to_vec()));
         }
-        children.push(Node::Label { text: pattern_label(r.pattern()).into(), style: TextStyle::Strong });
+        let own = r.texture.starts_with(crate::textures::OWN);
+        children.push(Node::row(vec![
+            Node::Label { text: crate::textures::name(&r.texture), style: TextStyle::Strong },
+            Node::Button {
+                id: "own".into(),
+                label: tr("Eigenes Bild …", "Own picture …").into(),
+                primary: false,
+                enabled: true,
+            },
+            Node::Button { id: "forget".into(), label: tr("Entfernen", "Remove").into(), primary: false, enabled: own },
+        ]));
 
         children.push(Node::Form {
             id: "how".into(),
@@ -668,6 +750,7 @@ impl PanelState {
                     },
                 ),
                 row(tr("Drehung", "Rotation"), number("rotation", r.rotation, -360.0, 360.0, 15.0, Unit::Degrees, 0)),
+                row(tr("Glätten", "Smoothing"), number("smooth", r.smooth, 0.0, 25.0, 0.5, Unit::Percent, 1)),
                 row(
                     "",
                     Node::Checkbox {
