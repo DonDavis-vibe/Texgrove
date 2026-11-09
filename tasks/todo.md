@@ -163,6 +163,11 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       Ende prüfen (plugin-run `call apply`, MCP, Chat)
 
 ## M10 Fertigstellen
+- [x] Zeiten im Plugin (wasm, `meshgrove-plugin-run job export`, 09.11.): 100-mm-Würfel Waben
+      10 mm Normal 10 s (2,6 M → 476 k), Fein 19 s (5,2 M → 933 k); Adapter Rändel nur außen 18 s
+      (4,1 M → 1 M); Adapter Leder Entwurf 10 s; Spitzenverbrauch unter 0,9 GB – alle Ziele gehalten
+- [x] README de/en, `install-into-meshgrove.sh`, `release-notes.sh`
+- [ ] CI/Release-Workflows (erst mit Meshgrove 0.9.0: vorher baut das Plugin dort nicht)
 - [ ] Grafiken (Krea 2 Turbo über ComfyUI), README, CHANGELOG, CI/Release
 - [ ] **Test unter Linux ganz normal lokal** (Davis, 09.11.)
 - [ ] **Test in der Windows-VM** (Davis, 09.11.: „vor allem auch“)
