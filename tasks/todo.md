@@ -26,15 +26,27 @@ Aufgefallen: `bambi/adaptek.stl` hat 192 Kanten mit mehr als zwei Dreiecken – 
 nicht immer sauber; Unterteilen/Verschieben/Reduzieren (M2) müssen damit umgehen.
 
 ## M2 Textur-Pipeline
-- [ ] `heightmap` (bilinear, Kacheln, Weichzeichnen)
-- [ ] `textures/procedural` (Rändel, Waben, Voronoi, Rauschen, Streifen, Punkte, Ziegel, Geflecht, Rillen)
-- [ ] `project` (Triplanar, Box, Zylinder, Kugel, Planar; später Outline wrap, Stempel)
-- [ ] `subdivide` (kantenlängen-adaptiv, `parent` je Dreieck)
-- [ ] `mask` (Flags, Tupfer, Winkel, Randauslauf)
-- [ ] `displace` (ein Normal je Punkt, Kantenschutz, Flip-Nachlauf)
-- [ ] `decimate` (QEM mit Schutzregeln)
-- [ ] `quality`, `layers`, `pipeline`
-- [ ] CLI `apply`, `bench`; Eigenschaftstests; Benchmarks
+- [x] `heightmap` (bilinear, wiederholt/gespiegelt, Weichzeichnen, Graustufenbild rein/raus)
+- [x] `pattern` (Rändel, Rillen, Rippen, Streifen, Punkte, Waben, Voronoi, Rauschen, Ziegel, Geflecht;
+      jedes kennt sein feinstes Detail → Standard-Kantenlänge)
+- [x] `project` (Triplanar, Box, Zylinder mit ganzer Kachelzahl + Deckel, Kugel, Planar XY/XZ/YZ;
+      mm-Maße, Versatz, Drehung, von außen nie gespiegelt)
+- [x] `subdivide` (Kanten halbieren bis ≤ L, `parent` je Dreieck, Teilauswahl ohne Spalt,
+      Schätzung zählt exakt „in Gedanken“, Kantenlänge fürs Budget)
+- [x] `displace` (ein Normal je Punkt, Tiefe/Mittelwert/Invertieren, Gewichte)
+- [x] `pipeline::texture` mit Kantenschutz (scharfe Kanten bleiben stehen)
+- [x] CLI `apply`, `pattern` (PGM)
+- [x] Erste Ergebnisse: Adapter mit Rändel/Waben/Geflecht, Würfel mit Ziegeln/Voronoi
+      (`out/first-textures.png`); 8,3 M Dreiecke in 5 s, 590 MB
+- [ ] `decimate` (QEM mit Schutzregeln) – **als Nächstes**: Rändel auf dem Adapter sind 8,3 M
+      Dreiecke / 98 MB 3MF, das muss auf ein Budget herunter
+- [ ] `mask` (Flags, Tupfer, Winkel, Randauslauf), `layers`, `quality` (Stufen aus Düse)
+- [ ] Flip-Nachlauf, Überlappungswarnung, Fortschritt/Abbruch in der Pipeline
+- [ ] Outline wrap, Stempel (M8), Naht-Blend für Box/Zylinder
+- [ ] Eigenschaftstests (proptest), `bench`
+
+Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecksbudget lässt sich
+über die Kantenlänge nur grob treffen; das Budget fürs Ergebnis macht das Reduzieren.
 
 ## M3 Plugin-API 0.2 Teil 1 (Host, eigene Session)
 ## M4 Plugin-Grundstock ohne Malen

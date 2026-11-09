@@ -3,10 +3,9 @@
 //! An STL stores every triangle with three vertices of its own. Before anything can ask "which
 //! triangles meet here", vertices at one place have to become one vertex.
 
+use crate::hash::FastMap;
 use crate::mesh::{Bounds, Mesh};
 use crate::vec::P3;
-use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hasher};
 
 /// A welded mesh and where its parts came from.
 #[derive(Debug, Clone, Default)]
@@ -37,8 +36,8 @@ pub fn default_tolerance(bounds: &Bounds) -> f32 {
 pub fn weld(mesh: &Mesh, tolerance: f32) -> Welded {
     let tolerance = f64::from(tolerance.max(f32::MIN_POSITIVE));
     let cell = |p: P3| p.map(|c| (f64::from(c) / tolerance).round() as i64);
-    let mut seen: HashMap<[i64; 3], u32, BuildHasherDefault<CellHasher>> =
-        HashMap::with_capacity_and_hasher(mesh.positions.len() / 2, BuildHasherDefault::default());
+    let mut seen: FastMap<[i64; 3], u32> =
+        FastMap::with_capacity_and_hasher(mesh.positions.len() / 2, Default::default());
     let mut out = Welded { vertex_map: Vec::with_capacity(mesh.positions.len()), ..Welded::default() };
     for &p in &mesh.positions {
         let next = out.mesh.positions.len() as u32;
@@ -65,40 +64,6 @@ pub fn weld(mesh: &Mesh, tolerance: f32) -> Welded {
 /// [`weld`] with the [`default_tolerance`] of the mesh.
 pub fn weld_default(mesh: &Mesh) -> Welded {
     weld(mesh, default_tolerance(&mesh.bounds()))
-}
-
-/// A fast hash for cell coordinates (FxHash's mixing); cells come from geometry, not from an
-/// attacker, so the standard library's slow keyed hash buys nothing here.
-#[derive(Default)]
-struct CellHasher(u64);
-
-impl Hasher for CellHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        // Arrays of integers arrive here as one run of bytes: take them eight at a time.
-        let (words, rest) = bytes.as_chunks::<8>();
-        for word in words {
-            self.write_u64(u64::from_le_bytes(*word));
-        }
-        for &b in rest {
-            self.write_u64(u64::from(b));
-        }
-    }
-
-    fn write_i64(&mut self, v: i64) {
-        self.write_u64(v as u64);
-    }
-
-    fn write_u64(&mut self, v: u64) {
-        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(0x517c_c1b7_2722_0a95);
-    }
-
-    fn write_usize(&mut self, v: usize) {
-        self.write_u64(v as u64);
-    }
 }
 
 #[cfg(test)]

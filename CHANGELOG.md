@@ -14,4 +14,10 @@ The mesh kernel.
 - **Ray tree**: what a ray hits and which triangles lie near a point, on millions of triangles.
 - **Files**: reads STL (binary and text), writes binary STL and 3MF with one named object per part;
   the same input gives the same bytes.
-- **Command line**: `texgrove diag` and `texgrove convert`.
+- **Textures**: ten built-in patterns made by formulas (knurl, grooves, ribs, stripes, dots,
+  hexagons, voronoi, noise, bricks, weave), height maps with blur and mirrored tiling.
+- **Laying on**: triplanar, box, cylinder (a whole number of tiles round, flat caps), globe and
+  flat from each axis; tile size in millimetres, shift and rotation.
+- **Texturing**: edges are halved until the mesh is fine enough, every vertex moves once along its
+  normal, so a closed model stays closed; sharp edges can be held in place.
+- **Command line**: `texgrove diag`, `texgrove convert`, `texgrove apply`, `texgrove pattern`.

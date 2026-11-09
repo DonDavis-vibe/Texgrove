@@ -5,8 +5,9 @@ height patterns onto a model and writes the result as a mesh any slicer takes. I
 as a plugin for [Meshgrove](https://github.com/DonDavis-vibe/MeshGrove), with a command line
 beside it.
 
-> **Work in progress.** So far there is the mesh kernel (`texgrove-core`) and a small command
-> line; the texturing itself and the plugin are next. Nothing is released yet.
+> **Work in progress.** The kernel (`texgrove-core`) and a command line can already put the
+> built-in patterns onto a model; reducing the result to a triangle budget, masks, picture
+> textures and the plugin itself are next. Nothing is released yet.
 
 *Deutsche Fassung: [README.de.md](README.de.md)*
 
@@ -15,6 +16,7 @@ beside it.
 ```sh
 cargo run --release -p texgrove-cli -- diag model.stl             # closed? one piece? facing outwards?
 cargo run --release -p texgrove-cli -- convert model.stl out.3mf  # join vertices, write STL or 3MF
+cargo run --release -p texgrove-cli -- apply model.stl -o knurled.3mf --texture knurl --tile 6 --depth 0.8 --mapping cylindrical
 ```
 
 ## Development

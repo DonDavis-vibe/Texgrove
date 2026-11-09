@@ -5,8 +5,9 @@ und andere Höhenmuster auf ein Modell und schreibt das Ergebnis als Netz, das j
 annimmt. Es entsteht als Plugin für [Meshgrove](https://github.com/DonDavis-vibe/MeshGrove),
 daneben gibt es eine Kommandozeile.
 
-> **In Arbeit.** Bisher gibt es den Netz-Kern (`texgrove-core`) und eine kleine Kommandozeile;
-> das Texturieren selbst und das Plugin kommen als Nächstes. Veröffentlicht ist noch nichts.
+> **In Arbeit.** Der Kern (`texgrove-core`) und eine Kommandozeile bringen die eingebauten Muster
+> schon auf ein Modell; das Reduzieren auf ein Dreiecksbudget, Masken, Bild-Texturen und das
+> Plugin selbst kommen als Nächstes. Veröffentlicht ist noch nichts.
 
 *English version: [README.md](README.md)*
 
@@ -15,6 +16,7 @@ daneben gibt es eine Kommandozeile.
 ```sh
 cargo run --release -p texgrove-cli -- diag modell.stl             # geschlossen? ein Stück? Außenseite außen?
 cargo run --release -p texgrove-cli -- convert modell.stl aus.3mf  # Punkte verbinden, STL oder 3MF schreiben
+cargo run --release -p texgrove-cli -- apply modell.stl -o raendel.3mf --texture knurl --tile 6 --depth 0.8 --mapping cylindrical
 ```
 
 ## Entwicklung
