@@ -1,0 +1,30 @@
+{
+  "_hinweis": "Krea 2 Turbo, prompt family of Meshgrove and Bingrove (low-poly trees, one amber crown, dark background). Make them: python3 ../meshgroveSite/scripts/comfy_gen.py assets/entwuerfe/prompts.json --out assets/entwuerfe --prefix texgrove",
+
+  "icon_zylinder": {
+    "size": "1024x1024",
+    "seeds": [8101, 8102],
+    "prompt": "Stylized low-poly 3D illustration, app icon composition, isometric view from slightly above. One matte teal green 3D-printed cylinder stands on a small thin rounded slate-gray slab; the whole side wall of the cylinder is covered with a deep raised honeycomb relief of regular hexagons, like an embossed surface texture, the flat top of the cylinder is smooth. Next to it on the slab stands one small low-poly tree with a round faceted geodesic amber orange crown, flat-shaded triangular facets, warm brown faceted trunk. Matte surfaces, soft studio light from the upper left, soft shadow. Centered, the objects fill about two thirds of the frame. Plain flat very dark charcoal blue-black background, the same color at every edge. Clean, minimal, calm. No text, no letters, no logo, no watermark."
+  },
+  "icon_wuerfel": {
+    "size": "1024x1024",
+    "seeds": [8201, 8202],
+    "prompt": "Stylized low-poly 3D illustration, app icon composition, isometric view from slightly above. One matte teal green 3D-printed cube with slightly rounded edges; its two visible side faces are covered with a deep raised diamond knurl relief, like an embossed surface texture pressed into the plastic, its top face is smooth. On top of the cube grows one small low-poly tree with a round faceted geodesic amber orange crown, flat-shaded triangular facets, warm brown faceted trunk. Matte surfaces, soft studio light from the upper left, soft shadow under the cube. Centered, the cube and tree fill about two thirds of the frame. Plain flat very dark charcoal blue-black background, the same color at every edge. Clean, minimal, calm. No text, no letters, no logo, no watermark."
+  },
+  "icon_stamm": {
+    "size": "1024x1024",
+    "seeds": [8301, 8302],
+    "prompt": "Stylized low-poly 3D illustration, app icon composition, front view slightly from above. One single low-poly tree: a round faceted geodesic amber orange crown with flat-shaded triangular facets on top of a thick, short, matte teal green 3D-printed cylindrical trunk; the trunk is covered all around with a deep raised diamond knurl relief like the grip of a tool handle. The tree stands on a small thin rounded slate-gray slab. Matte surfaces, soft studio light from the upper left, soft shadow. Centered, fills about two thirds of the frame. Plain flat very dark charcoal blue-black background, the same color at every edge. Clean, minimal, calm. No text, no letters, no logo, no watermark."
+  },
+
+  "banner_reihe": {
+    "size": "2304x960",
+    "seeds": [8401, 8402],
+    "prompt": "Stylized low-poly 3D illustration, wide banner composition, seen slightly from above. The left 45 percent of the image is empty, smooth very dark charcoal blue-black background with no objects. In the right half, on a long thin slate-gray stone slab, stands a row of four matte 3D-printed objects in teal green and petrol green, each with a different deep raised relief texture covering its sides: a cylinder with a honeycomb relief of hexagons, a cube with a brick wall relief, a sphere with a diamond knurl relief, a tall vase with a wavy wood grain relief. Between them stands exactly one small low-poly tree with a round faceted geodesic amber orange crown, flat-shaded triangular facets, warm brown faceted trunk. Matte surfaces, soft studio light from the upper left, soft shadows. Clean, minimal, calm. No text, no letters, no logo, no watermark."
+  },
+  "banner_vorher_nachher": {
+    "size": "2304x960",
+    "seeds": [8501, 8502],
+    "prompt": "Stylized low-poly 3D illustration, wide banner composition, seen slightly from above. The left 45 percent of the image is empty, smooth very dark charcoal blue-black background with no objects. In the right half, on a thin slate-gray stone slab, stand two matte teal green 3D-printed cylinders of the same size side by side: the left cylinder is completely smooth, the right cylinder is covered all around with a deep raised honeycomb relief of regular hexagons. Behind them stands exactly one small low-poly tree with a round faceted geodesic amber orange crown, flat-shaded triangular facets, warm brown faceted trunk. Matte surfaces, soft studio light from the upper left, soft shadows. Clean, minimal, calm. No text, no letters, no logo, no watermark."
+  }
+}

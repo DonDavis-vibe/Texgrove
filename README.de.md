@@ -33,7 +33,8 @@ und auch eine KI wie Claude kann es bedienen.
    ```
 2. `texgrove.wasm` nach `~/.local/share/meshgrove/plugins/` kopieren.
 3. In Meshgrove *Einstellungen → Plugins* öffnen, Texgrove installieren und „Dateien in die
-   Bibliothek legen“ erlauben (und „Werkzeuge für die KI“, wenn eine KI es nutzen soll).
+   Bibliothek legen“ erlauben. Soll eine KI es nutzen: auch „Werkzeuge für die KI“ und
+   „Bibliothek lesen“ – ohne das Lesen sieht Texgrove nur, was du selbst mit Rechtsklick öffnest.
 
 ## Benutzen
 
@@ -50,7 +51,7 @@ Meshgroves Verlauf.
 | `texgrove_textures` | listet die Texturen, mit nummeriertem Bild |
 | `texgrove_inspect` | Größe, Teile, Innen-Anteil eines Modells, sinnvolle Kachelgrößen und Tiefen |
 | `texgrove_preview` | ein Bild des Modells vorher und nachher |
-| `texgrove_apply` | erzeugt die texturierte Datei im Hintergrund; sie wartet in Meshgroves Review |
+| `texgrove_apply` | erzeugt die texturierte Datei im Hintergrund; sie wartet in Meshgroves Prüfung |
 
 ## Kommandozeile
 

@@ -31,7 +31,8 @@ AI such as Claude can use it too.
    ```
 2. Copy `texgrove.wasm` to `~/.local/share/meshgrove/plugins/`.
 3. In Meshgrove open *Settings → Plugins*, install Texgrove and grant "Put files into the
-   library" (and "Tools for the AI" if an AI should use it).
+   library". For an AI to use it, also grant "Tools for the AI" and "Read the library": without
+   reading, Texgrove sees only what you open yourself with a right-click.
 
 ## Using it
 

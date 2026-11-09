@@ -44,10 +44,13 @@ pub struct PanelState {
     /// The brush stroke being drawn.
     #[serde(skip)]
     stroke: Vec<PaintOp>,
-    /// What the user typed into the search field, and what it found.
-    pub search: String,
+    /// What the user typed into the search field, what it found, and whether it found nothing.
+    #[serde(skip)]
+    search: String,
     #[serde(skip)]
     results: Vec<Source>,
+    #[serde(skip)]
+    nothing_found: bool,
     #[serde(skip)]
     view: ViewState,
     #[serde(skip)]
@@ -523,6 +526,7 @@ impl PanelState {
 
     fn run_search(&mut self) {
         self.results.clear();
+        self.nothing_found = false;
         if self.search.is_empty() {
             return;
         }
@@ -530,9 +534,7 @@ impl PanelState {
             Ok(json) => {
                 let value: serde_json::Value = serde_json::from_str(&json).unwrap_or_default();
                 self.results = hits(&value);
-                if self.results.is_empty() {
-                    self.message = Some((Level::Info, tr("Nichts gefunden", "Nothing found").into()));
-                }
+                self.nothing_found = self.results.is_empty();
             }
             Err(e) => self.message = Some((Level::Warn, e)),
         }
@@ -1024,6 +1026,13 @@ impl PanelState {
             multiline: false,
             enabled: true,
         });
+        if self.nothing_found {
+            // Said right below the field: the panel's messages stand far down, out of sight.
+            children.push(Node::Label {
+                text: tf!("Nichts gefunden für „{}“", "Nothing found for \"{}\"", self.search),
+                style: TextStyle::Small,
+            });
+        }
         if !self.results.is_empty() {
             children.push(Node::Table {
                 id: "results".into(),

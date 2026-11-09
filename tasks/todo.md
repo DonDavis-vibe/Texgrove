@@ -167,6 +167,9 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       dem Original (`out/ki-review.png`). Offen: Statusleiste/Toast beim Chat im Fenster.
 
 ## M10 Fertigstellen
+- [x] Suche im Panel geklickt (10.11., mit „Bibliothek lesen“ = was die KI sehen darf): Treffer
+      anklicken fügt das Modell hinzu; „Nichts gefunden“ steht jetzt direkt unter dem Feld, und
+      der Suchtext wird nicht mehr über einen Neustart gemerkt
 - [x] Zeiten im Plugin (wasm, `meshgrove-plugin-run job export`, 09.11.): 100-mm-Würfel Waben
       10 mm Normal 10 s (2,6 M → 476 k), Fein 19 s (5,2 M → 933 k); Adapter Rändel nur außen 18 s
       (4,1 M → 1 M); Adapter Leder Entwurf 10 s; Spitzenverbrauch unter 0,9 GB – alle Ziele gehalten
