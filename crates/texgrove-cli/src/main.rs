@@ -133,6 +133,7 @@ enum MappingArg {
     Triplanar,
     Cubic,
     Cylindrical,
+    Outline,
     Spherical,
     Xy,
     Xz,
@@ -198,8 +199,9 @@ fn run(command: Command) -> Result<(), String> {
             let settings = Settings {
                 mapping: match apply.mapping {
                     MappingArg::Triplanar => Mapping::default(),
-                    MappingArg::Cubic => Mapping::Cubic,
-                    MappingArg::Cylindrical => Mapping::Cylindrical { cap_degrees: 30.0 },
+                    MappingArg::Cubic => Mapping::Cubic { blend: 0.2 },
+                    MappingArg::Cylindrical => Mapping::Cylindrical { cap_degrees: 30.0, cap_blend: 10.0 },
+                    MappingArg::Outline => Mapping::Outline { cap_degrees: 30.0, cap_blend: 10.0 },
                     MappingArg::Spherical => Mapping::Spherical,
                     MappingArg::Xy => Mapping::PlanarXY,
                     MappingArg::Xz => Mapping::PlanarXZ,

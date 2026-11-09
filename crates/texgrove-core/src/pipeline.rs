@@ -10,6 +10,7 @@ use crate::normals::{Weighting, face_normals, sharp_edges, vertex_normals};
 use crate::project::{Mapping, Placement, Projector};
 use crate::subdivide::{Limits, edge_for_budget, subdivide};
 use crate::topology::Topology;
+use crate::vec::{self, P3};
 
 /// One texture on a model: what, how it is laid on, how deep, and where.
 #[derive(Debug, Clone)]
@@ -81,6 +82,19 @@ pub struct Textured {
     pub capped: bool,
     /// How many triangles the mesh had before it was reduced.
     pub refined_triangles: usize,
+    /// What the user should know about the result.
+    pub warnings: Vec<Warning>,
+}
+
+/// Something about a result worth a look before printing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Warning {
+    /// The relief goes deeper than a tenth of the part's smallest size: walls may meet or
+    /// break through.
+    TooDeep { depth: f32, smallest: f32 },
+    /// Triangles that would have turned over where the relief is steep for the mesh; their
+    /// relief was flattened there.
+    Flattened { triangles: usize },
 }
 
 /// What the pipeline is doing, for a progress bar.
@@ -150,18 +164,45 @@ pub fn texture_layers(
         held
     });
     // The tree is only for brush strokes; most models have none.
-    let bvh = layers.iter().any(|layer| !layer.mask.dabs.is_empty()).then(|| Bvh::build(&mesh));
+    let stamps = layers.iter().any(|layer| matches!(layer.mapping, Mapping::Stamp { .. }));
+    let bvh = (stamps || layers.iter().any(|layer| !layer.mask.dabs.is_empty())).then(|| Bvh::build(&mesh));
     let mut offsets = vec![0.0f32; mesh.positions.len()];
     for (i, layer) in layers.iter().enumerate() {
         if !go_on(Stage::Move, i as f32 / layers.len() as f32) {
             return None;
         }
-        let weights = layer.mask.weights(&active[i], &mesh, &parent, &normals, held.as_deref(), bvh.as_ref());
-        let projector = Projector::new(layer.mapping, &layer.placement, &bounds, layer.map.aspect);
+        let mut weights = layer.mask.weights(&active[i], &mesh, &parent, &normals, held.as_deref(), bvh.as_ref());
+        let projector = Projector::for_mesh(layer.mapping, &layer.placement, source, layer.map.aspect);
+        let reach = bounds.diagonal().max(1e-3);
+        for (v, weight) in weights.iter_mut().enumerate() {
+            if *weight <= 0.0 {
+                continue;
+            }
+            *weight *= projector.cover(mesh.positions[v], normals[v]);
+            // A stamp reaches only what it can see: nothing of the part in between.
+            if let (Mapping::Stamp { normal: facing, .. }, Some(bvh)) = (layer.mapping, bvh.as_ref())
+                && *weight > 0.0
+            {
+                let origin = vec::add(mesh.positions[v], vec::scale(normals[v], reach * 1e-4));
+                if bvh.blocked(&mesh, origin, vec::normalize(facing), 0.0, f32::INFINITY) {
+                    *weight = 0.0;
+                }
+            }
+        }
         let coat = Coat { projector: &projector, map: layer.map, relief: &layer.relief, blend: layer.blend };
         lay_on(&mut offsets, &mesh, &normals, Some(&weights), &coat);
     }
-    shift(&mut mesh, &normals, &offsets);
+    let mut warnings = Vec::new();
+    let deepest = offsets.iter().fold(0.0f32, |m, o| m.max(o.abs()));
+    let size = bounds.size();
+    let smallest = size[0].min(size[1]).min(size[2]);
+    if smallest > 0.0 && deepest > 0.1 * smallest {
+        warnings.push(Warning::TooDeep { depth: deepest, smallest });
+    }
+    let flattened = guard_flips(&mut mesh, &normals, &mut offsets);
+    if flattened > 0 {
+        warnings.push(Warning::Flattened { triangles: flattened });
+    }
     drop((normals, offsets, held, bvh));
     let refined_triangles = mesh.triangles.len();
     if !go_on(Stage::Reduce, 0.0) {
@@ -176,7 +217,38 @@ pub fn texture_layers(
         parent = reduced.source_triangle.iter().map(|&t| parent[t as usize]).collect();
         mesh = reduced.mesh;
     }
-    Some(Textured { mesh, parent, edge, capped: refined.capped, refined_triangles })
+    Some(Textured { mesh, parent, edge, capped: refined.capped, refined_triangles, warnings })
+}
+
+/// Moves the vertices by their offsets, but where a triangle would turn over (the relief steeper
+/// than the mesh can follow), halves the offsets of its corners and tries again, three times at
+/// most. How many triangles needed it.
+fn guard_flips(mesh: &mut Mesh, normals: &[P3], offsets: &mut [f32]) -> usize {
+    let before: Vec<P3> = face_normals(mesh);
+    let start = mesh.positions.clone();
+    let mut touched = vec![false; mesh.triangles.len()];
+    for round in 0..4 {
+        mesh.positions.copy_from_slice(&start);
+        shift(mesh, normals, offsets);
+        if round == 3 {
+            break;
+        }
+        let mut flipped = false;
+        for t in 0..mesh.triangles.len() {
+            let now = crate::normals::face_normal(mesh, t);
+            if vec::dot(now, before[t]) < 0.0 || (now == [0.0; 3] && before[t] != [0.0; 3]) {
+                flipped = true;
+                touched[t] = true;
+                for v in mesh.triangles[t] {
+                    offsets[v as usize] *= 0.5;
+                }
+            }
+        }
+        if !flipped {
+            break;
+        }
+    }
+    touched.iter().filter(|t| **t).count()
 }
 
 #[cfg(test)]
@@ -357,7 +429,7 @@ mod tests {
         let inside = select::inside(&tube, &Topology::build(&tube), &Bvh::build(&tube), 30.0);
         let faces = inside.iter().map(|inside| if *inside { EXCLUDED } else { 0 }).collect();
         let outside_only = Settings {
-            mapping: Mapping::Cylindrical { cap_degrees: 30.0 },
+            mapping: Mapping::Cylindrical { cap_degrees: 30.0, cap_blend: 0.0 },
             mask: Mask { faces, top_degrees: 5.0, bottom_degrees: 5.0, ..Mask::default() },
             relief: Relief { depth: 1.0, midlevel: 0.0, invert: false },
             ..settings()
@@ -376,6 +448,46 @@ mod tests {
         // The bore was not even refined: two triangles per segment, as before.
         let bore = textured.parent.iter().filter(|&&p| (p / 2) % 4 == 2).count();
         assert!(bore < 64 * 2 * 4, "{bore}");
+    }
+
+    #[test]
+    fn a_stamp_lands_once_where_it_was_put_and_only_there() {
+        let cube = shapes::cuboid([30.0; 3]);
+        let white = Heightmap::new(1, 1, vec![1.0]).unwrap();
+        let stamp = Settings {
+            mapping: Mapping::Stamp { centre: [15.0, 0.0, 15.0], normal: [0.0, -1.0, 0.0] },
+            placement: Placement { tile: 10.0, ..Placement::default() },
+            relief: Relief { depth: 1.0, midlevel: 0.0, invert: false },
+            ..settings()
+        };
+        let stamped = texture(&cube, &white, &stamp);
+        let report = diagnose(&stamped.mesh);
+        assert!(report.sound(), "{report:?}");
+        // A raised square on the front, 10 mm wide; the back, though in the stamp's line, stays.
+        let raised: Vec<_> = stamped.mesh.positions.iter().filter(|p| p[1] < -0.5).collect();
+        assert!(!raised.is_empty());
+        assert!(raised.iter().all(|p| (p[0] - 15.0).abs() <= 5.0 && (p[2] - 15.0).abs() <= 5.0));
+        assert!(stamped.mesh.positions.iter().all(|p| p[1] <= 30.0));
+        assert!(stamped.warnings.is_empty(), "{:?}", stamped.warnings);
+    }
+
+    #[test]
+    fn too_deep_a_relief_is_reported_and_turned_triangles_are_flattened() {
+        let plate = shapes::cuboid([40.0, 40.0, 2.0]);
+        let map = Pattern::Knurl.render(256);
+        let deep = Settings { relief: Relief { depth: 1.5, midlevel: 0.5, invert: false }, ..free_edges() };
+        let textured = texture(&plate, &map, &deep);
+        assert!(textured.warnings.iter().any(|w| matches!(w, Warning::TooDeep { smallest, .. } if *smallest == 2.0)));
+        // A relief far steeper than the mesh: some triangles had to be flattened, none turned.
+        let coarse = Settings {
+            relief: Relief { depth: 6.0, midlevel: 0.5, invert: false },
+            placement: Placement { tile: 1.0, ..Placement::default() },
+            finish: Finish { max_edge: 0.8, ..free_edges().finish },
+            ..settings()
+        };
+        let steep = texture(&shapes::cuboid([20.0; 3]), &map, &coarse);
+        assert!(steep.warnings.iter().any(|w| matches!(w, Warning::Flattened { .. })), "{:?}", steep.warnings);
+        assert_eq!(diagnose(&steep.mesh).disagreeing_edges, 0);
     }
 
     #[test]

@@ -51,6 +51,8 @@ struct ViewState {
     running: Option<(String, f32, String)>,
     /// Why the last preview failed.
     failed: Option<String>,
+    /// What the last preview had to say about the result.
+    warnings: Vec<String>,
 }
 
 /// Making the files: what is left, what is done, what failed.
@@ -63,6 +65,8 @@ struct Batch {
     /// Done but not yet handed over: the source and what came of it.
     done: Vec<(usize, Exported)>,
     failed: Vec<(usize, String)>,
+    /// What the finished files had to say.
+    warned: Vec<(usize, String)>,
     /// Files handed over so far in this batch.
     handed: usize,
 }
@@ -199,7 +203,7 @@ impl TexturePanel {
             }
             Event::JobFinished { job, result, error } => {
                 if let Some(key) = job.strip_prefix("preview:") {
-                    s.preview_finished(key, error);
+                    s.preview_finished(key, result, error);
                     changed = true;
                 } else if job.starts_with("export:") {
                     effects.extend(s.export_finished(result, error));
@@ -271,6 +275,7 @@ impl PanelState {
             ("tile", Some(v)) => r.tile = v.clamp(0.2, 200.0),
             ("depth", Some(v)) => r.depth = v.clamp(0.0, 20.0),
             ("rotation", Some(v)) => r.rotation = v.clamp(-360.0, 360.0),
+            ("blend", Some(v)) => r.blend = v.clamp(0.0, 100.0),
             ("smooth", Some(v)) => r.smooth = v.clamp(0.0, 25.0),
             ("bottom", Some(v)) => r.bottom = v.clamp(0.0, 90.0),
             ("top", Some(v)) => r.top = v.clamp(0.0, 90.0),
@@ -373,9 +378,13 @@ impl PanelState {
         }
     }
 
-    fn preview_finished(&mut self, key: &str, error: Option<String>) {
+    fn preview_finished(&mut self, key: &str, result: Option<serde_json::Value>, error: Option<String>) {
         if self.view.running.as_ref().is_some_and(|(running, ..)| running == key) {
             self.view.running = None;
+            self.view.warnings = result
+                .and_then(|r| r.get("warnings").cloned())
+                .and_then(|w| serde_json::from_value(w).ok())
+                .unwrap_or_default();
             if let Some(error) = error.filter(|e| !e.contains("cancel")) {
                 self.view.failed = Some(error);
             }
@@ -414,6 +423,11 @@ impl PanelState {
         }
         let Some(next) = next else {
             self.batch.current = None;
+            if !self.batch.warned.is_empty() {
+                let lines: Vec<String> =
+                    self.batch.warned.iter().map(|(i, w)| format!("{}: {w}", self.sources[*i].name)).collect();
+                self.message = Some((Level::Warn, lines.join("\n")));
+            }
             if !self.batch.failed.is_empty() {
                 let names: Vec<String> =
                     self.batch.failed.iter().map(|(i, e)| format!("{}: {e}", self.sources[*i].name)).collect();
@@ -451,7 +465,12 @@ impl PanelState {
     fn export_finished(&mut self, result: Option<serde_json::Value>, error: Option<String>) -> Vec<Effect> {
         let Some((i, ..)) = self.batch.current.take() else { return Vec::new() };
         match (result.and_then(|r| serde_json::from_value::<Exported>(r).ok()), error) {
-            (Some(done), _) => self.batch.done.push((i, done)),
+            (Some(done), _) => {
+                for warning in &done.warnings {
+                    self.batch.warned.push((i, warning.clone()));
+                }
+                self.batch.done.push((i, done));
+            }
             (None, Some(error)) => self.batch.failed.push((i, error)),
             (None, None) => self.batch.failed.push((i, tr("keine Antwort", "no answer").into())),
         }
@@ -589,6 +608,8 @@ impl PanelState {
                 height: Some(460.0),
                 bed: self.host.bed,
                 frame: None,
+                paint: None,
+                overlay: None,
             }),
             (None, Some(_)) => children.push(Node::Progress { fraction: None, text: Some(tr("Modell wird geladen …", "Loading the model …").into()) }),
         }
@@ -600,6 +621,9 @@ impl PanelState {
         }
         if let Some(error) = &self.view.failed {
             children.push(Node::Notice { level: Level::Error, text: error.clone() });
+        }
+        for warning in &self.view.warnings {
+            children.push(Node::Notice { level: Level::Warn, text: warning.clone() });
         }
         if !self.sources.is_empty() {
             let label = if self.plain {
@@ -775,6 +799,19 @@ impl PanelState {
                 ),
                 row(tr("Drehung", "Rotation"), number("rotation", r.rotation, -360.0, 360.0, 15.0, Unit::Degrees, 0)),
                 row(tr("Glätten", "Smoothing"), number("smooth", r.smooth, 0.0, 25.0, 0.5, Unit::Percent, 1)),
+                row(
+                    tr("Übergang an Kanten", "Blend at edges"),
+                    Node::NumberInput {
+                        id: "blend".into(),
+                        value: f64::from(r.blend),
+                        min: Some(0.0),
+                        max: Some(100.0),
+                        step: Some(5.0),
+                        unit: Unit::Percent,
+                        decimals: Some(0),
+                        enabled: r.mapping.blends(),
+                    },
+                ),
                 row(
                     "",
                     Node::Checkbox {

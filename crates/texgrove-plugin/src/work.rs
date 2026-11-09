@@ -135,6 +135,27 @@ pub struct Exported {
     pub triangles: usize,
     pub refined: usize,
     pub edge: f32,
+    /// What the user should know about the file.
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// A warning of the kernel in words.
+fn warning_text(warning: &pipeline::Warning) -> String {
+    use crate::lang::number;
+    match warning {
+        pipeline::Warning::TooDeep { depth, smallest } => crate::tf!(
+            "Die Textur geht {} mm tief, das Teil ist an der dünnsten Stelle nur {} mm: Wände können sich berühren.",
+            "The texture goes {} mm deep and the part is only {} mm at its thinnest: walls may touch.",
+            number(*depth, 2),
+            number(*smallest, 1)
+        ),
+        pipeline::Warning::Flattened { triangles } => crate::tf!(
+            "An {} Stellen war die Textur zu steil für das Netz und wurde dort flacher gemacht (feinere Qualität hilft).",
+            "In {} places the texture was too steep for the mesh and was flattened there (a finer quality helps).",
+            crate::lang::count(*triangles)
+        ),
+    }
 }
 
 /// A name for the cache file of what `parts` describe.
@@ -176,9 +197,12 @@ pub fn preview(job: &PreviewJob) -> Result<serde_json::Value, PluginError> {
     let _ = std::fs::create_dir_all(PREVIEW_DIR);
     write_mesh(&format!("{PREVIEW_DIR}/{}", job.plain), &source)?;
     let map = job.recipe.map().map_err(PluginError::Failed)?;
+    let mut warnings = Vec::new();
     let textured = if job.source.parts.is_empty() {
         let settings = job.recipe.preview_settings(&source, job.nozzle, PREVIEW_TRIANGLES, &map);
-        pipeline::texture_with(&source, &map, &settings, &mut progress).ok_or(PluginError::Cancelled)?.mesh
+        let done = pipeline::texture_with(&source, &map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
+        warnings.extend(done.warnings.iter().map(warning_text));
+        done.mesh
     } else {
         // Each object on its own, in its own coordinates as the file to keep will have it, then
         // put where it stands.
@@ -198,7 +222,7 @@ pub fn preview(job: &PreviewJob) -> Result<serde_json::Value, PluginError> {
     };
     write_mesh(&format!("{PREVIEW_DIR}/{}", job.textured), &textured)?;
     prune(PREVIEW_DIR, 12);
-    Ok(serde_json::json!({"triangles": textured.triangles.len()}))
+    Ok(serde_json::json!({"triangles": textured.triangles.len(), "warnings": warnings}))
 }
 
 /// One object of a 3MF through Meshgrove, its corners joined.
@@ -227,6 +251,7 @@ pub fn export(job: &ExportJob) -> Result<Exported, PluginError> {
         triangles: textured.mesh.triangles.len(),
         refined: textured.refined_triangles,
         edge: textured.edge,
+        warnings: textured.warnings.iter().map(warning_text).collect(),
     })
 }
 
@@ -247,6 +272,7 @@ fn export_parts(job: &ExportJob, map: &texgrove_core::heightmap::Heightmap) -> R
     let textured_area: f64 =
         (0..parts.len()).filter(|&i| chosen.contains(&parts[i])).map(|i| areas[i]).sum::<f64>().max(1e-9);
     let (mut total, mut refined, mut edge) = (0usize, 0usize, 0.0f32);
+    let mut warnings = Vec::new();
     let mut replace = Vec::new();
     let mut whole = Mesh::default();
     let folder = format!("parts/{}", crate::work::cache_key(&job.file));
@@ -258,6 +284,7 @@ fn export_parts(job: &ExportJob, map: &texgrove_core::heightmap::Heightmap) -> R
             settings.finish.triangles = ((settings.finish.triangles as f64 * share) as usize).max(20_000);
             let done = pipeline::texture_with(&mesh, map, &settings, &mut progress).ok_or(PluginError::Cancelled)?;
             refined += done.refined_triangles;
+            warnings.extend(done.warnings.iter().map(warning_text));
             edge = edge.max(done.edge);
             done.mesh
         } else {
@@ -278,7 +305,7 @@ fn export_parts(job: &ExportJob, map: &texgrove_core::heightmap::Heightmap) -> R
     if !as_3mf {
         write_file(job, &whole)?;
     }
-    Ok(Exported { file: job.file.clone(), replace, triangles: total, refined, edge })
+    Ok(Exported { file: job.file.clone(), replace, triangles: total, refined, edge, warnings })
 }
 
 /// Writes the mesh as the file the job names, in the format the recipe says.

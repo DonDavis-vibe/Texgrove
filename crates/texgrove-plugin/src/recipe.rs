@@ -33,6 +33,8 @@ pub struct Recipe {
     pub invert: bool,
     /// Degrees.
     pub rotation: f32,
+    /// How soft seams and the way to a cap are, in percent.
+    pub blend: f32,
     pub place: Place,
     /// Faces looking down within this many degrees stay smooth.
     pub bottom: f32,
@@ -53,6 +55,7 @@ impl Default for Recipe {
             relief: ReliefChoice::Both,
             invert: false,
             rotation: 0.0,
+            blend: 20.0,
             place: Place::All,
             bottom: 5.0,
             top: 0.0,
@@ -69,6 +72,7 @@ pub enum MappingChoice {
     Triplanar,
     Cubic,
     Cylindrical,
+    Outline,
     Spherical,
     Xy,
     Xz,
@@ -76,10 +80,11 @@ pub enum MappingChoice {
 }
 
 impl MappingChoice {
-    pub const ALL: [MappingChoice; 7] = [
+    pub const ALL: [MappingChoice; 8] = [
         MappingChoice::Triplanar,
         MappingChoice::Cubic,
         MappingChoice::Cylindrical,
+        MappingChoice::Outline,
         MappingChoice::Spherical,
         MappingChoice::Xy,
         MappingChoice::Xz,
@@ -91,6 +96,7 @@ impl MappingChoice {
             MappingChoice::Triplanar => "triplanar",
             MappingChoice::Cubic => "cubic",
             MappingChoice::Cylindrical => "cylindrical",
+            MappingChoice::Outline => "outline",
             MappingChoice::Spherical => "spherical",
             MappingChoice::Xy => "xy",
             MappingChoice::Xz => "xz",
@@ -103,6 +109,7 @@ impl MappingChoice {
             MappingChoice::Triplanar => tr("Rundum (triplanar)", "All round (triplanar)"),
             MappingChoice::Cubic => tr("Würfel", "Box"),
             MappingChoice::Cylindrical => tr("Zylinder", "Cylinder"),
+            MappingChoice::Outline => tr("Umriss (wie ein Band herum)", "Outline (round like a band)"),
             MappingChoice::Spherical => tr("Kugel", "Sphere"),
             MappingChoice::Xy => tr("Von oben", "From above"),
             MappingChoice::Xz => tr("Von vorn", "From the front"),
@@ -114,11 +121,19 @@ impl MappingChoice {
         MappingChoice::ALL.into_iter().find(|m| m.id() == id)
     }
 
-    fn mapping(self) -> Mapping {
+    /// Whether the mapping has a seam or a cap to blend.
+    pub fn blends(self) -> bool {
+        matches!(self, MappingChoice::Cubic | MappingChoice::Cylindrical | MappingChoice::Outline)
+    }
+
+    /// The kernel's mapping; `blend` (0 to 1) softens seams and the way from side to cap.
+    fn mapping(self, blend: f32) -> Mapping {
+        let blend = blend.clamp(0.0, 1.0);
         match self {
             MappingChoice::Triplanar => Mapping::default(),
-            MappingChoice::Cubic => Mapping::Cubic,
-            MappingChoice::Cylindrical => Mapping::Cylindrical { cap_degrees: 30.0 },
+            MappingChoice::Cubic => Mapping::Cubic { blend },
+            MappingChoice::Cylindrical => Mapping::Cylindrical { cap_degrees: 30.0, cap_blend: 40.0 * blend },
+            MappingChoice::Outline => Mapping::Outline { cap_degrees: 30.0, cap_blend: 40.0 * blend },
             MappingChoice::Spherical => Mapping::Spherical,
             MappingChoice::Xy => Mapping::PlanarXY,
             MappingChoice::Xz => Mapping::PlanarXZ,
@@ -330,7 +345,7 @@ impl Recipe {
 
     fn with_finish(&self, source: &Mesh, finish: Finish) -> Settings {
         Settings {
-            mapping: self.mapping.mapping(),
+            mapping: self.mapping.mapping(self.blend / 100.0),
             placement: Placement { tile: self.tile.max(0.1), rotation: self.rotation, ..Placement::default() },
             relief: self.relief(),
             mask: self.mask(source),
