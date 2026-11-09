@@ -114,12 +114,19 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
 - [x] Galerie mit Gruppen (Muster / Natur & Material / Hero Patterns / Eigene), Quellenangabe unter
       der Textur und in der Notiz der Datei (CC BY verlangt Namensnennung), README-Credits
 - [x] Weggelassen: Jeans, Fischgrät, Strick (zu wenig Relief bzw. nur Falten)
-- [ ] Favoriten (Stern)
+- [x] Favoriten (Stern)
 ## M6 Plugin-API 0.2 Teil 2 (Malen, Overlay, Performance) – Host-Session
 - [x] Auftrag an die Host-Session (09.11.); zwei Commits (BVH, Farben je Dreieck), Rest in Arbeit:
       `MeshView.paint`/`overlay`, `MeshPick`/`MeshStroke`, Malmodus im Viewer, PreparedMesh
-- [ ] Ergebnis nachprüfen (Tests, Diff), API-Schnappschuss in `target/host` auffrischen
-- [ ] Malen in der Testsitzung klicken (`target/host/setup-env.sh`, `shot.sh`)
+- [x] Teil 2 fertig (Commits bis f59b80f); Tests von mir nachgeprüft (114 + 228 + … grün)
+- [x] Im echten Fenster gefunden: Malmodus fror ein (egui-Sperre doppelt genommen) → von der
+      Host-Session behoben (b5f72e8), danach hier geklickt (`target/host/run.sh` zeigt das ganze Log,
+      `RUST_LOG=warn,plugin=info,meshgrove=info` zeigt Plugin-Zeilen)
+- [x] In der Testsitzung geklickt: Fläche markieren (nur hier / keine Textur), Umschalt+Klick nimmt
+      zurück, Pinselstrich (Start/Move/End, Pinselkreis), Overlay orange, Auf Fläche legen
+      (`out/panel-malen.png`)
+- [ ] Ein Klick in den ersten Sekunden (Debug-Build, Suchbaum noch nicht fertig) ging einmal
+      verloren: im Release-Build prüfen
 
 ## M7 Masken und Ebenen
 - [x] Kern: `mask::Op` (Fläche füllen per Punkt + Normale, Pinsel-Tupfer, Leeren) – gilt für jede
@@ -133,13 +140,16 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       entfernen, verdecken/addieren; Qualität und Format gelten für alle
 - [x] Über Jobs geprüft: Fläche + Pinsel ausgespart, Stempel, zwei Ebenen (`out/zwei-ebenen.png`);
       Ebenen-Bedienung in der Testsitzung geklickt (`out/panel-ebenen.png`)
-- [ ] Malen/Klicken im 3D-Fenster selbst: wartet auf M6
-- [ ] „Auf Fläche legen“ (Modell auf eine Fläche drehen), Präzisions-Pinsel auf groben Netzen
+- [x] Malen/Klicken im 3D-Fenster selbst: geklickt (siehe M6)
+- [x] „Auf Fläche legen“: Klick dreht ein Ein-Netz-Modell so, dass die Fläche auf dem Bett liegt;
+      „Wie in der Datei hinstellen“ nimmt es zurück (Projekte richtet man im Slicer aus)
+- [x] Pinsel ist von sich aus präzise: Tupfer sind Geometrie und wirken auf dem verfeinerten Netz
+- [x] Favoriten (★), Hinweis bei nicht geschlossenen Modellen
 
 ## M8 Erweiterte Projektionen
 - [x] Box mit weichen Kanten, Zylinder/Umriss mit weichem Deckelübergang, Umriss, Stempel,
       Flip-Schutz, Tiefenwarnung; im Panel geklickt (Umriss am Kasten)
-- [ ] Diagnose-Anzeige (offene Kanten, Teile) im Panel
+- [x] Hinweis im Panel, wenn ein Modell nicht sauber geschlossen ist
 
 ## M9 KI-Werkzeuge
 - [x] Kern: `raster` (Bild ohne Grafikkarte: z-Puffer, Licht von links oben, Markiertes orange)

@@ -40,6 +40,9 @@ pub struct Source {
     /// What the user painted on the model, stroke by stroke, in the coordinates of the model
     /// as shown.
     pub strokes: Vec<Stroke>,
+    /// How the model was turned to lie on one of its faces: the rows of a rotation, applied to
+    /// the model as it comes from the file. Only for models that are one mesh.
+    pub turned: Option<[[f32; 3]; 3]>,
 }
 
 /// What one press of the mouse did: a click on a face, or a line of brush dabs.
@@ -65,6 +68,18 @@ pub enum PaintOp {
 
 /// Faces differing by no more than this many degrees count as one surface for a click.
 const FILL_DEGREES: f32 = 30.0;
+
+const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+fn product(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
+    let mut out = [[0.0; 3]; 3];
+    for (i, row) in out.iter_mut().enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
+            *cell = (0..3).map(|k| a[i][k] * b[k][j]).sum();
+        }
+    }
+    out
+}
 
 /// One object of a 3MF.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -179,6 +194,35 @@ impl Source {
                 }),
             })
             .collect()
+    }
+
+    /// Turns the model, as it is shown now, so that a face looking along `normal` looks straight
+    /// down: it then lies on the bed. Marks painted before would point elsewhere and go.
+    pub fn lay_on(&mut self, normal: [f32; 3]) {
+        use texgrove_core::vec::{cross, dot, length, normalize};
+        let from = normalize(normal);
+        let down = [0.0, 0.0, -1.0];
+        let (axis, cos) = (cross(from, down), dot(from, down));
+        let sin = length(axis);
+        let step = if sin < 1e-6 {
+            // Already down, or straight up: then half a turn round x.
+            if cos > 0.0 { IDENTITY } else { [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]] }
+        } else {
+            // Rodrigues: I + K + K² (1 − cos) / sin², with K the cross-product matrix of the axis.
+            let [x, y, z] = axis;
+            let k = [[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]];
+            let k2 = product(&k, &k);
+            let f = (1.0 - cos) / (sin * sin);
+            let mut r = IDENTITY;
+            for i in 0..3 {
+                for j in 0..3 {
+                    r[i][j] += k[i][j] + k2[i][j] * f;
+                }
+            }
+            r
+        };
+        self.turned = Some(product(&step, &self.turned.unwrap_or(IDENTITY)));
+        self.strokes.clear();
     }
 
     /// The parts that get the texture.
@@ -328,7 +372,19 @@ fn failed(what: &str, error: impl std::fmt::Display) -> PluginError {
 /// Reads a model through Meshgrove and joins its corners.
 pub fn load(source: &Source, budget: u32) -> Result<Mesh, PluginError> {
     let data: MeshData = library::triangles(&source.reference, budget).map_err(PluginError::Denied)?.into();
-    let mesh = Mesh::from_flat(&data.positions, &data.indices).map_err(|e| failed(&source.name, e))?;
+    let mut mesh = Mesh::from_flat(&data.positions, &data.indices).map_err(|e| failed(&source.name, e))?;
+    if let Some(rows) = source.turned {
+        // Turned to lie on a face, and set down on the bed.
+        for p in &mut mesh.positions {
+            *p = rows.map(|row| texgrove_core::vec::dot(row, *p));
+        }
+        let lowest = mesh.bounds().min[2];
+        if lowest.is_finite() {
+            for p in &mut mesh.positions {
+                p[2] -= lowest;
+            }
+        }
+    }
     if mesh.triangles.is_empty() {
         return Err(PluginError::Failed(crate::tf!("{} hat keine Dreiecke", "{} has no triangles", source.name)));
     }

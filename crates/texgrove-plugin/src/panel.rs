@@ -69,6 +69,8 @@ pub enum Tool {
     Fill,
     /// Dragging marks what the brush touches.
     Brush,
+    /// A click turns the model so the face that was hit lies on the bed.
+    Lay,
 }
 
 /// The colour of what gets no texture, and of fresh marks until the preview has caught up.
@@ -255,6 +257,16 @@ impl TexturePanel {
                         s.group.clear();
                         changed = true;
                     }
+                    "upright" => {
+                        let at = s.selected;
+                        if let Some(source) = s.sources.get_mut(at).filter(|source| source.turned.is_some()) {
+                            source.turned = None;
+                            source.strokes.clear();
+                            s.undone.clear();
+                            s.layers.iter_mut().for_each(|layer| layer.stamp = None);
+                            changed = true;
+                        }
+                    }
                     "unstamp" => {
                         s.recipe_mut().stamp = None;
                         changed = true;
@@ -271,7 +283,17 @@ impl TexturePanel {
                 }
             }
             Event::MeshPick { hit: Some(hit), shift, .. } => {
-                if s.tool == Tool::Fill {
+                if s.tool == Tool::Lay {
+                    let at = s.selected;
+                    if let Some(source) = s.sources.get_mut(at).filter(|source| source.parts.is_empty()) {
+                        source.lay_on(hit.normal);
+                        s.undone.clear();
+                        // A stamp sat on the model as it stood before.
+                        s.layers.iter_mut().for_each(|layer| layer.stamp = None);
+                        s.tool = Tool::Off;
+                        changed = true;
+                    }
+                } else if s.tool == Tool::Fill {
                     let include = s.include;
                     s.add_stroke(vec![PaintOp::Fill { point: hit.point, normal: hit.normal, include, erase: shift }]);
                     changed = true;
@@ -432,6 +454,7 @@ impl PanelState {
                 self.tool = match text {
                     "fill" => Tool::Fill,
                     "brush" => Tool::Brush,
+                    "lay" => Tool::Lay,
                     _ => Tool::Off,
                 };
                 self.stroke.clear();
@@ -523,7 +546,8 @@ impl PanelState {
             self.view.marks = None;
             return effects;
         };
-        let plain = format!("p-{}", work::cache_key(&source.reference));
+        let turned = source.turned.map(|rows| rows.map(|row| row.map(f32::to_bits)));
+        let plain = format!("p-{}", work::cache_key(&(&source.reference, turned)));
         // The file's quality and format do not change the look.
         let look: Vec<Recipe> = self
             .layers
@@ -533,6 +557,7 @@ impl PanelState {
         // The parts left out and the strokes painted change the look as well.
         let key = work::cache_key(&(
             &source.reference,
+            source.turned.map(|rows| rows.map(|row| row.map(f32::to_bits))),
             &source.skipped,
             serde_json::to_string(&source.strokes).unwrap_or_default(),
             serde_json::to_string(&look).unwrap_or_default(),
@@ -796,11 +821,13 @@ impl PanelState {
                     Tool::Brush => {
                         Some(MeshPaint { tool: PaintTool::Brush, radius_mm: self.brush_radius(), tint, erase_tint: None })
                     }
+                    Tool::Lay => Some(MeshPaint { tool: PaintTool::Click, ..MeshPaint::default() }),
                     Tool::Off if stamping => Some(MeshPaint { tool: PaintTool::Click, ..MeshPaint::default() }),
                     Tool::Off => None,
                 };
                 // While a tool is in hand, what gets no texture shows in colour.
-                let overlay = self.view.marks.as_ref().filter(|_| self.tool != Tool::Off).map(|marks| MeshOverlay {
+                let marking = matches!(self.tool, Tool::Fill | Tool::Brush);
+                let overlay = self.view.marks.as_ref().filter(|_| marking).map(|marks| MeshOverlay {
                     key: marks.clone(),
                     revision: self.view.marks_revision,
                     palette: vec!["#00000000".into(), format!("{LEFT_OUT}b0")],
@@ -856,7 +883,11 @@ impl PanelState {
 
     /// The tools for saying by hand where the texture goes.
     fn tools(&self) -> Vec<Node> {
-        let strokes = self.sources.get(self.selected).map_or(0, |source| source.strokes.len());
+        let source = self.sources.get(self.selected);
+        let strokes = source.map_or(0, |source| source.strokes.len());
+        // A project's objects stand where the slicer put them; one mesh can be laid down here.
+        let one_mesh = source.is_some_and(|source| source.parts.is_empty());
+        let turned = source.is_some_and(|source| source.turned.is_some());
         let choice = |value: &str, label: &str| Choice { value: value.into(), label: label.into() };
         let mut nodes = vec![Node::Separator];
         let mut first = vec![
@@ -867,16 +898,18 @@ impl PanelState {
                     choice("off", tr("Drehen", "Turn")),
                     choice("fill", tr("Fläche markieren", "Mark a surface")),
                     choice("brush", tr("Pinsel", "Brush")),
+                    choice("lay", tr("Auf Fläche legen", "Lay on a face")),
                 ],
                 selected: match self.tool {
                     Tool::Off => "off",
                     Tool::Fill => "fill",
                     Tool::Brush => "brush",
+                    Tool::Lay => "lay",
                 }
                 .into(),
             },
         ];
-        if self.tool != Tool::Off {
+        if matches!(self.tool, Tool::Fill | Tool::Brush) {
             first.push(Node::Radio {
                 id: "effect".into(),
                 options: vec![
@@ -914,6 +947,14 @@ impl PanelState {
                 enabled: strokes > 0,
             },
         ]);
+        if turned {
+            second.push(Node::Button {
+                id: "upright".into(),
+                label: tr("Wie in der Datei hinstellen", "Stand as in the file").into(),
+                primary: false,
+                enabled: true,
+            });
+        }
         nodes.push(Node::row(second));
         let hint = match self.tool {
             Tool::Fill => tr(
@@ -923,6 +964,14 @@ impl PanelState {
             Tool::Brush => tr(
                 "Ziehen malt, Umschalt beim Drücken radiert Pinselstriche. Orange bekommt keine Textur. Rechte Taste dreht, mittlere verschiebt, das Rad zoomt.",
                 "Dragging paints, Shift at the press erases brush strokes. Orange gets no texture. The right button turns, the middle one moves, the wheel zooms.",
+            ),
+            Tool::Lay if !one_mesh => tr(
+                "Die Teile eines Projekts stehen so, wie der Slicer sie gestellt hat: bitte dort ausrichten.",
+                "The objects of a project stand as the slicer put them: please turn them there.",
+            ),
+            Tool::Lay => tr(
+                "Ein Klick auf eine Fläche dreht das Modell so, dass sie auf dem Druckbett liegt. Markierungen von Hand gehen dabei verloren.",
+                "A click on a face turns the model so that it lies on the print bed. Marks made by hand are lost by it.",
             ),
             Tool::Off if self.recipe().mapping == MappingChoice::Stamp => tr(
                 "Ein Klick aufs Modell setzt den Stempel dorthin. Die Kachelgröße ist seine Breite, die Drehung dreht ihn.",

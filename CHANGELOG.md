@@ -17,6 +17,7 @@ The mesh kernel, and the first Meshgrove panel.
 - **Marks by hand**: tools below the preview mark whole surfaces with a click or places with a
   brush, as "no texture" or "texture only here", with undo and redo; what gets no texture shows
   in orange. (Needs Meshgrove 0.9.0's painting in the 3D view.)
+- **Lay on a face**: a click turns a model so that face lies on the print bed.
 - **Layers**: up to four textures on one model, each with its own settings and marks, covering
   or adding to those below; a new layer starts empty and goes where you mark.
 - **Stamp, outline, soft seams**: a texture once where you click; wrapped along the part's
