@@ -9,10 +9,9 @@ use meshgrove_plugin_api::ui::{
 };
 use meshgrove_plugin_api::{Bundle, BundleFile, Derive3mf, HostInfo, PartMesh};
 use serde::{Deserialize, Serialize};
-use texgrove_core::pattern::Pattern;
 
 use crate::lang::{self, tr};
-use crate::recipe::{Format, MappingChoice, Place, QualityChoice, Recipe, ReliefChoice, pattern_label};
+use crate::recipe::{Format, MappingChoice, Place, QualityChoice, Recipe, ReliefChoice};
 use crate::tf;
 use crate::work::{self, ExportJob, Exported, PreviewJob, Source};
 
@@ -26,6 +25,8 @@ pub struct PanelState {
     pub recipe: Recipe,
     /// Show the model as it is instead of textured.
     pub plain: bool,
+    /// The gallery group shown.
+    pub group: String,
     /// What the user typed into the search field, and what it found.
     pub search: String,
     #[serde(skip)]
@@ -103,6 +104,7 @@ impl TexturePanel {
             Event::FilePicked { id, name, path } if id == "picture" => match crate::textures::add(&path, &name) {
                 Ok(texture) => {
                     s.recipe.texture = texture;
+                    s.group = "own".into();
                     changed = true;
                 }
                 Err(e) => s.message = Some((Level::Error, e)),
@@ -282,6 +284,10 @@ impl PanelState {
             }
             ("format", _) => {
                 r.format = if text == "stl" { Format::Stl } else { Format::ThreeMf };
+                return false;
+            }
+            ("group", _) => {
+                self.group = text.to_owned();
                 return false;
             }
             ("search", _) => {
@@ -694,12 +700,16 @@ impl PanelState {
 
         children.push(Node::Separator);
         children.push(Node::heading(tr("Textur", "Texture")));
-        let mut textures: Vec<(String, String)> =
-            Pattern::ALL.iter().map(|p| (p.id().to_owned(), pattern_label(*p).to_owned())).collect();
-        textures.extend(
-            crate::textures::list().into_iter().map(|own| (format!("{}{}", crate::textures::OWN, own.id), own.name)),
-        );
-        let tiles: Vec<Node> = textures
+        use crate::textures::Group;
+        let group = if self.group.is_empty() { Group::of(&r.texture) } else { Group::from_id(&self.group) };
+        children.push(Node::Select {
+            id: "group".into(),
+            options: Group::ALL.iter().map(|g| Choice { value: g.id().into(), label: g.label().into() }).collect(),
+            selected: group.id().into(),
+            enabled: true,
+        });
+        let tiles: Vec<Node> = group
+            .textures()
             .iter()
             .filter_map(|(id, name)| {
                 Some(Node::Image {
@@ -712,10 +722,21 @@ impl PanelState {
                 })
             })
             .collect();
+        if tiles.is_empty() && group == Group::Own {
+            children.push(Node::Label {
+                text: tr(
+                    "Noch keine eigenen Bilder: „Eigenes Bild …“ wählt eins.",
+                    "No pictures of your own yet: “Own picture …” picks one.",
+                )
+                .into(),
+                style: TextStyle::Weak,
+            });
+        }
         for line in tiles.chunks(5) {
             children.push(Node::row(line.to_vec()));
         }
         let own = r.texture.starts_with(crate::textures::OWN);
+        let credit = crate::textures::credit(&r.texture);
         children.push(Node::row(vec![
             Node::Label { text: crate::textures::name(&r.texture), style: TextStyle::Strong },
             Node::Button {
@@ -726,6 +747,9 @@ impl PanelState {
             },
             Node::Button { id: "forget".into(), label: tr("Entfernen", "Remove").into(), primary: false, enabled: own },
         ]));
+        if let Some(credit) = credit {
+            children.push(Node::Label { text: credit.into(), style: TextStyle::Small });
+        }
 
         children.push(Node::Form {
             id: "how".into(),

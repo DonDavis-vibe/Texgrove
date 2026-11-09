@@ -106,7 +106,14 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       `/data/textures` gemerkt, in der Galerie, „Entfernen“; „Glätten“ in % der Kachel
 - [x] Eigene Textur im Export-Job geprüft (Kiesel-Foto auf Würfel)
 - [ ] Dateidialog selbst nicht im Test geklickt (öffnet über das Portal auf dem echten Desktop)
-- [ ] CC0-Bilder (Poly Haven/ambientCG) und Hero Patterns herunterladen – Davis' Zustimmung nötig
+- [x] Downloads mit Davis' Zustimmung (09.11.): 16 Poly-Haven-Höhenbilder (CC0, 28 MB) und
+      `hero-patterns-2.1.0.tgz` (npm, nur als Text gelesen, nicht ausgeführt) – nur im Scratchpad
+- [x] `scripts/build-textures.py` (Kontrast 0,5–99,5 %, 512 px, Hero-SVGs weiß auf schwarz per
+      Inkscape) → 12 Natur + 32 Hero Patterns = 2,2 MB PNG in `assets/textures`, `CREDITS.md`,
+      `catalog.rs` (per `include_bytes!` eingebettet; wasm 3,8 MB)
+- [x] Galerie mit Gruppen (Muster / Natur & Material / Hero Patterns / Eigene), Quellenangabe unter
+      der Textur und in der Notiz der Datei (CC BY verlangt Namensnennung), README-Credits
+- [x] Weggelassen: Jeans, Fischgrät, Strick (zu wenig Relief bzw. nur Falten)
 - [ ] Favoriten (Stern)
 ## M6 Plugin-API 0.2 Teil 2 (Malen, Overlay, Performance)
 ## M7 Masken und Ebenen

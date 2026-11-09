@@ -14,6 +14,9 @@ The mesh kernel, and the first Meshgrove panel.
 - **Slicer projects**: a 3MF with several objects lists them; only the ticked ones get the
   texture, and Meshgrove swaps just those into a copy of the project, so plates, profiles and the
   other objects stay as they were.
+- **Textures that ship**: twelve nature and material maps from Poly Haven (bark, wood, leather,
+  rock, cobblestones, brick, slate, corrugated iron, gravel, rust, metal plate) and 32 patterns
+  from Hero Patterns, in gallery groups, each with its credit.
 - **Your own pictures**: a PNG or JPEG becomes a texture (bright is high), kept for next time,
   with smoothing for grainy photos.
 

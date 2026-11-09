@@ -34,6 +34,11 @@ The idea comes from [BumpMesh](https://bumpmesh.com) by Stefan Hermann (CNC Kitc
 this in the browser. Texgrove is written from scratch in Rust and takes no code or textures
 from it.
 
+Textures that ship with Texgrove: displacement maps from [Poly Haven](https://polyhaven.com)
+(CC0) and patterns from [Hero Patterns](https://heropatterns.com) by Steve Schoger
+([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)); the list is in
+[assets/textures/CREDITS.md](assets/textures/CREDITS.md).
+
 ## License
 
 MIT or Apache-2.0, at your choice. © 2026 Davis ([German Redneck Engineering](https://redneck-design.de/)).

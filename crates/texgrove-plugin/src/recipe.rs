@@ -365,6 +365,9 @@ impl Recipe {
             parts.push(crate::tf!("Oberseite frei ({}°)", "top left smooth ({}°)", number(self.top, 0)));
         }
         parts.push(crate::tf!("Qualität {}", "quality {}", self.quality.label()));
+        if let Some(credit) = crate::textures::credit(&self.texture) {
+            parts.push(crate::tf!("Textur: {}", "texture: {}", credit));
+        }
         parts.join(", ")
     }
 }

@@ -6,6 +6,7 @@ use texgrove_core::heightmap::Heightmap;
 use texgrove_core::pattern::Pattern;
 use texgrove_core::picture;
 
+use crate::catalog::{Category, SHIPPED, Shipped};
 use crate::lang::tr;
 use crate::recipe::pattern_label;
 
@@ -73,7 +74,82 @@ pub fn map(texture: &str) -> Result<Heightmap, String> {
             .map_err(|_| tr("Die eigene Textur ist nicht mehr da", "The texture of your own is gone").to_owned())?;
         return picture::read(&bytes).map_err(|e| e.to_string());
     }
+    if let Some(shipped) = shipped(texture) {
+        return picture::read(shipped.png).map_err(|e| e.to_string());
+    }
     Ok(Pattern::from_id(texture).unwrap_or(Pattern::Knurl).render(1024))
+}
+
+/// A texture that ships with Texgrove, by its id.
+pub fn shipped(texture: &str) -> Option<&'static Shipped> {
+    SHIPPED.iter().find(|s| s.id == texture)
+}
+
+/// Where a shipped texture comes from and under which licence, for the panel and the note.
+pub fn credit(texture: &str) -> Option<&'static str> {
+    shipped(texture).map(|s| s.credit)
+}
+
+/// The groups of the gallery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    Patterns,
+    Nature,
+    Hero,
+    Own,
+}
+
+impl Group {
+    pub const ALL: [Group; 4] = [Group::Patterns, Group::Nature, Group::Hero, Group::Own];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Group::Patterns => "patterns",
+            Group::Nature => "nature",
+            Group::Hero => "hero",
+            Group::Own => "own",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Group::Patterns => tr("Muster", "Patterns"),
+            Group::Nature => tr("Natur & Material", "Nature & material"),
+            Group::Hero => "Hero Patterns",
+            Group::Own => tr("Eigene", "Your own"),
+        }
+    }
+
+    pub fn from_id(id: &str) -> Group {
+        Group::ALL.into_iter().find(|g| g.id() == id).unwrap_or(Group::Patterns)
+    }
+
+    /// The group a texture belongs to.
+    pub fn of(texture: &str) -> Group {
+        match shipped(texture).map(|s| s.category) {
+            Some(Category::Nature) => Group::Nature,
+            Some(Category::Hero) => Group::Hero,
+            None if texture.starts_with(OWN) => Group::Own,
+            None => Group::Patterns,
+        }
+    }
+
+    /// The textures of the group: id and name.
+    pub fn textures(self) -> Vec<(String, String)> {
+        let shipped = |category: Category| {
+            SHIPPED
+                .iter()
+                .filter(|s| s.category == category)
+                .map(|s| (s.id.to_owned(), tr(s.de, s.en).to_owned()))
+                .collect()
+        };
+        match self {
+            Group::Patterns => Pattern::ALL.iter().map(|p| (p.id().to_owned(), pattern_label(*p).to_owned())).collect(),
+            Group::Nature => shipped(Category::Nature),
+            Group::Hero => shipped(Category::Hero),
+            Group::Own => list().into_iter().map(|own| (format!("{OWN}{}", own.id), own.name)).collect(),
+        }
+    }
 }
 
 /// The name of a texture for people.
@@ -82,6 +158,9 @@ pub fn name(texture: &str) -> String {
         Some(id) => {
             list().into_iter().find(|own| own.id == id).map_or_else(|| tr("Eigene", "Own").into(), |own| own.name)
         }
-        None => pattern_label(Pattern::from_id(texture).unwrap_or(Pattern::Knurl)).into(),
+        None => match shipped(texture) {
+            Some(s) => tr(s.de, s.en).into(),
+            None => pattern_label(Pattern::from_id(texture).unwrap_or(Pattern::Knurl)).into(),
+        },
     }
 }

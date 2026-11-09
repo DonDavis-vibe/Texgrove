@@ -7,6 +7,7 @@
 //!   its model (`next_to`), tagged and with the settings in its note: one step in the history
 //!   per library.
 
+mod catalog;
 mod lang;
 mod panel;
 mod recipe;

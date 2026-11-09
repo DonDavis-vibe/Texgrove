@@ -34,6 +34,11 @@ Die Idee stammt von [BumpMesh](https://bumpmesh.com) von Stefan Hermann (CNC Kit
 dasselbe im Browser macht. Texgrove ist von Grund auf in Rust geschrieben und übernimmt weder
 Code noch Texturen daraus.
 
+Mitgelieferte Texturen: Höhenbilder von [Poly Haven](https://polyhaven.com) (CC0) und Muster
+von [Hero Patterns](https://heropatterns.com) von Steve Schoger
+([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)); die Liste steht in
+[assets/textures/CREDITS.md](assets/textures/CREDITS.md).
+
 ## Lizenz
 
 MIT oder Apache-2.0, nach Wahl. © 2026 Davis ([German Redneck Engineering](https://redneck-design.de/)).
