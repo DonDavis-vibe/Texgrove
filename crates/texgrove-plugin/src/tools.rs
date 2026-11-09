@@ -50,7 +50,10 @@ fn invalid(what: impl Into<String>) -> PluginError {
 
 /// All textures: id, name, group.
 fn all_textures() -> Vec<(String, String, Group)> {
-    Group::ALL.iter().flat_map(|group| group.textures().into_iter().map(move |(id, name)| (id, name, *group))).collect()
+    Group::KINDS
+        .iter()
+        .flat_map(|group| group.textures().into_iter().map(move |(id, name)| (id, name, *group)))
+        .collect()
 }
 
 impl Args {

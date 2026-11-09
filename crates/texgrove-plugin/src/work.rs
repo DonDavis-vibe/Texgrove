@@ -413,6 +413,18 @@ pub fn look(source: &Source, layers: &[Recipe], nozzle: f32, read: u32, budget: 
             Some(part) => part.placed(mesh),
             None => mesh,
         };
+        // A model with holes or fins still gets its texture, but the user should know.
+        let report = texgrove_core::diagnostics::diagnose(&mesh);
+        if !skipped && !report.closed() {
+            let name = piece.map_or(source.name.as_str(), |part| part.name.as_str());
+            look.warnings.push(crate::tf!(
+                "{} ist nicht sauber geschlossen ({} offene Kanten, {} mit mehr als zwei Flächen). Die Textur wird trotzdem aufgetragen; der Slicer repariert so etwas meist selbst.",
+                "{} is not cleanly closed ({} open edges, {} with more than two faces). The texture goes on all the same; a slicer usually repairs this by itself.",
+                name,
+                report.open_edges,
+                report.non_manifold_edges
+            ));
+        }
         if skipped {
             look.plain_out.extend(std::iter::repeat_n(true, mesh.triangles.len()));
             look.textured_out.extend(std::iter::repeat_n(true, mesh.triangles.len()));

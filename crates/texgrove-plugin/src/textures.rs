@@ -93,6 +93,8 @@ pub fn credit(texture: &str) -> Option<&'static str> {
 /// The groups of the gallery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group {
+    /// The textures the user starred.
+    Favourites,
     Patterns,
     Nature,
     Hero,
@@ -100,10 +102,13 @@ pub enum Group {
 }
 
 impl Group {
-    pub const ALL: [Group; 4] = [Group::Patterns, Group::Nature, Group::Hero, Group::Own];
+    pub const ALL: [Group; 5] = [Group::Favourites, Group::Patterns, Group::Nature, Group::Hero, Group::Own];
+    /// The groups every texture is in exactly one of.
+    pub const KINDS: [Group; 4] = [Group::Patterns, Group::Nature, Group::Hero, Group::Own];
 
     pub fn id(self) -> &'static str {
         match self {
+            Group::Favourites => "favourites",
             Group::Patterns => "patterns",
             Group::Nature => "nature",
             Group::Hero => "hero",
@@ -113,6 +118,7 @@ impl Group {
 
     pub fn label(self) -> &'static str {
         match self {
+            Group::Favourites => tr("★ Favoriten", "★ Favourites"),
             Group::Patterns => tr("Muster", "Patterns"),
             Group::Nature => tr("Natur & Material", "Nature & material"),
             Group::Hero => "Hero Patterns",
@@ -144,12 +150,36 @@ impl Group {
                 .collect()
         };
         match self {
+            Group::Favourites => {
+                let starred = favourites();
+                Group::KINDS.iter().flat_map(|group| group.textures()).filter(|(id, _)| starred.contains(id)).collect()
+            }
             Group::Patterns => Pattern::ALL.iter().map(|p| (p.id().to_owned(), pattern_label(*p).to_owned())).collect(),
             Group::Nature => shipped(Category::Nature),
             Group::Hero => shipped(Category::Hero),
             Group::Own => list().into_iter().map(|own| (format!("{OWN}{}", own.id), own.name)).collect(),
         }
     }
+}
+
+const FAVOURITES: &str = "/data/textures/favourites.json";
+
+/// The ids of the textures the user starred.
+pub fn favourites() -> Vec<String> {
+    std::fs::read(FAVOURITES).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+}
+
+/// Stars a texture, or takes its star away.
+pub fn toggle_favourite(texture: &str) -> Result<(), String> {
+    let mut starred = favourites();
+    match starred.iter().position(|id| id == texture) {
+        Some(at) => {
+            starred.remove(at);
+        }
+        None => starred.push(texture.to_owned()),
+    }
+    std::fs::create_dir_all(DIR).map_err(|e| e.to_string())?;
+    std::fs::write(FAVOURITES, serde_json::to_vec(&starred).unwrap_or_default()).map_err(|e| e.to_string())
 }
 
 /// The name of a texture for people.

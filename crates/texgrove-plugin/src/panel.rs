@@ -188,6 +188,12 @@ impl TexturePanel {
                         multiple: false,
                         into: meshgrove_plugin_api::ui::PickInto::Data,
                     }),
+                    "star" => {
+                        let texture = s.recipe().texture.clone();
+                        if let Err(e) = crate::textures::toggle_favourite(&texture) {
+                            s.message = Some((Level::Error, e));
+                        }
+                    }
                     "forget" if s.recipe().texture.starts_with(crate::textures::OWN) => {
                         let texture = s.recipe().texture.clone();
                         if let Err(e) = crate::textures::remove(&texture) {
@@ -1074,6 +1080,16 @@ impl PanelState {
                 })
             })
             .collect();
+        if tiles.is_empty() && group == Group::Favourites {
+            children.push(Node::Label {
+                text: tr(
+                    "Noch keine Favoriten: der Stern unter einer Textur merkt sie hier vor.",
+                    "No favourites yet: the star below a texture keeps it here.",
+                )
+                .into(),
+                style: TextStyle::Weak,
+            });
+        }
         if tiles.is_empty() && group == Group::Own {
             children.push(Node::Label {
                 text: tr(
@@ -1091,6 +1107,17 @@ impl PanelState {
         let credit = crate::textures::credit(&r.texture);
         children.push(Node::row(vec![
             Node::Label { text: crate::textures::name(&r.texture), style: TextStyle::Strong },
+            Node::Button {
+                id: "star".into(),
+                label: if crate::textures::favourites().contains(&r.texture) {
+                    tr("★ Favorit", "★ Favourite")
+                } else {
+                    tr("☆ Als Favorit", "☆ Favourite")
+                }
+                .into(),
+                primary: false,
+                enabled: true,
+            },
             Node::Button {
                 id: "own".into(),
                 label: tr("Eigenes Bild …", "Own picture …").into(),
