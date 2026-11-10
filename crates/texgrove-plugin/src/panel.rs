@@ -144,11 +144,16 @@ impl TexturePanel {
                 changed = true;
             }
             Event::ModelsOpened { ids } => {
-                let first = s.sources.len();
+                // The first of them shows, also when it was in the list already.
+                let mut first = None;
                 for id in ids {
-                    s.add(Source { name: file_name(&id), reference: id, ..Source::default() });
+                    let at = s.add(Source { name: file_name(&id), reference: id, ..Source::default() });
+                    first.get_or_insert(at);
                 }
-                s.selected = first.min(s.sources.len().saturating_sub(1));
+                if let Some(first) = first {
+                    s.undone.clear();
+                    s.selected = first;
+                }
                 changed = true;
             }
             Event::FilePicked { id, name, path } if id == "picture" => match crate::textures::add(&path, &name) {
@@ -160,8 +165,8 @@ impl TexturePanel {
                 Err(e) => s.message = Some((Level::Error, e)),
             },
             Event::FilePicked { name, path, .. } => {
-                s.add(Source { reference: path, name, ..Source::default() });
-                s.selected = s.sources.len() - 1;
+                s.selected = s.add(Source { reference: path, name, ..Source::default() });
+                s.undone.clear();
                 changed = true;
             }
             Event::Click { id } => {
@@ -338,8 +343,8 @@ impl TexturePanel {
                 }
                 "results" => {
                     if let Some(found) = row.parse::<usize>().ok().and_then(|i| s.results.get(i).cloned()) {
-                        s.add(found);
-                        s.selected = s.sources.len() - 1;
+                        s.selected = s.add(found);
+                        s.undone.clear();
                         changed = true;
                     }
                 }
@@ -421,13 +426,14 @@ impl PanelState {
     }
 
     /// Adds a model unless it is there already; a 3MF with the objects it is made of.
-    fn add(&mut self, mut source: Source) {
+    /// Puts a model into the list, unless it is there already, and says where it stands.
+    fn add(&mut self, mut source: Source) -> usize {
         if let Some(i) = self.sources.iter().position(|s| s.reference == source.reference) {
-            self.selected = i;
-        } else {
-            source.find_parts();
-            self.sources.push(source);
+            return i;
         }
+        source.find_parts();
+        self.sources.push(source);
+        self.sources.len() - 1
     }
 
     /// The layer the settings show.
