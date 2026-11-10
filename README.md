@@ -8,8 +8,6 @@ a new file beside the original. It is a plugin for
 [Meshgrove](https://github.com/DonDavis-vibe/MeshGrove), with a command line beside it, and an
 AI such as Claude can use it too.
 
-> **Not released yet.** Texgrove needs Meshgrove 0.9.0, which is in the making.
-
 *Deutsche Fassung: [README.de.md](README.de.md)*
 
 ## What it does
@@ -27,21 +25,28 @@ AI such as Claude can use it too.
 
 ## Install
 
-1. Download `texgrove.wasm` and `texgrove.wasm.sha256` from the releases and check the download:
+Texgrove needs Meshgrove **0.9.0 or newer**.
+
+1. Download `texgrove.wasm` and `texgrove.wasm.sha256` from the
+   [releases](https://github.com/DonDavis-vibe/Texgrove/releases) and check the download:
    ```bash
    sha256sum -c texgrove.wasm.sha256
    ```
-2. Copy `texgrove.wasm` to `~/.local/share/meshgrove/plugins/`.
-3. In Meshgrove open *Settings → Plugins*, install Texgrove and grant "Put files into the
-   library". For an AI to use it, also grant "Tools for the AI" and "Read the library": without
-   reading, Texgrove sees only what you open yourself with a right-click.
+2. In Meshgrove open *Settings → Plugins* and choose the file with "Browse …" (or copy it to
+   `~/.local/share/meshgrove/plugins/` first, on Windows `%APPDATA%\meshgrove\plugins`).
+3. Install Texgrove and grant "Put files into the library". For an AI to use it, also grant
+   "Tools for the AI" and "Read the library": without reading, Texgrove sees only what you open
+   yourself.
 
 ## Using it
 
-Right-click one or several models in Meshgrove's gallery and choose **Apply texture …**. The
-panel shows a coarse preview; pick a texture, set tile size and depth, say where it goes, and
-press **Apply texture**. The new file lands beside the original, tagged "Textured", with every
-setting in its note. Undo is in Meshgrove's history.
+Right-click one or several models in Meshgrove's gallery and choose **Apply texture …**, or
+press the button of that name in the Info pane. The panel shows a coarse preview; pick a
+texture, set tile size and depth, say where it goes, and press **Apply texture**. The new file
+lands beside the original, tagged "Textured", with every setting in its note. Undo is in
+Meshgrove's history.
+
+![Texgrove's panel in Meshgrove: a knob with a weave texture on its outside only, the models, the texture gallery and the settings](assets/screenshot-panel.png)
 
 ## With an AI
 

@@ -359,7 +359,7 @@ dependencies = [
 
 [[package]]
 name = "texgrove-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libm",
  "png",
@@ -370,7 +370,7 @@ dependencies = [
 
 [[package]]
 name = "texgrove-plugin"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "meshgrove-plugin-api",

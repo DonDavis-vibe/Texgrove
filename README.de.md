@@ -8,8 +8,6 @@ Ergebnis als neue Datei neben das Original. Es ist ein Plugin für
 [Meshgrove](https://github.com/DonDavis-vibe/MeshGrove), daneben gibt es eine Kommandozeile,
 und auch eine KI wie Claude kann es bedienen.
 
-> **Noch nicht veröffentlicht.** Texgrove braucht Meshgrove 0.9.0, das gerade entsteht.
-
 *English version: [README.md](README.md)*
 
 ## Was es kann
@@ -29,22 +27,29 @@ und auch eine KI wie Claude kann es bedienen.
 
 ## Installieren
 
-1. `texgrove.wasm` und `texgrove.wasm.sha256` aus den Releases laden und prüfen:
+Texgrove braucht Meshgrove **0.9.0 oder neuer**.
+
+1. `texgrove.wasm` und `texgrove.wasm.sha256` aus den
+   [Releases](https://github.com/DonDavis-vibe/Texgrove/releases) laden und prüfen:
    ```bash
    sha256sum -c texgrove.wasm.sha256
    ```
-2. `texgrove.wasm` nach `~/.local/share/meshgrove/plugins/` kopieren.
-3. In Meshgrove *Einstellungen → Plugins* öffnen, Texgrove installieren und „Dateien in die
-   Bibliothek legen“ erlauben. Soll eine KI es nutzen: auch „Werkzeuge für die KI“ und
-   „Bibliothek lesen“ – ohne das Lesen sieht Texgrove nur, was du selbst mit Rechtsklick öffnest.
+2. In Meshgrove *Einstellungen → Plugins* öffnen und die Datei mit „Durchsuchen …“ wählen (oder
+   sie vorher nach `~/.local/share/meshgrove/plugins/` kopieren, unter Windows nach
+   `%APPDATA%\meshgrove\plugins`).
+3. Texgrove installieren und „Dateien in die Bibliothek legen“ erlauben. Soll eine KI es nutzen:
+   auch „Werkzeuge für die KI“ und „Bibliothek lesen“ – ohne das Lesen sieht Texgrove nur, was
+   du selbst öffnest.
 
 ## Benutzen
 
 Ein oder mehrere Modelle in Meshgroves Galerie mit rechts anklicken und **Textur auftragen …**
-wählen. Das Panel zeigt eine grobe Vorschau; Textur wählen, Kachelgröße und Tiefe einstellen,
-sagen, wohin sie soll, und **Textur auftragen** drücken. Die neue Datei liegt neben dem
-Original, mit dem Tag „Texturiert“ und allen Einstellungen in der Notiz. Rückgängig geht über
-Meshgroves Verlauf.
+wählen, oder den gleichnamigen Knopf im Info-Bereich drücken. Das Panel zeigt eine grobe
+Vorschau; Textur wählen, Kachelgröße und Tiefe einstellen, sagen, wohin sie soll, und **Textur
+auftragen** drücken. Die neue Datei liegt neben dem Original, mit dem Tag „Texturiert“ und
+allen Einstellungen in der Notiz. Rückgängig geht über Meshgroves Verlauf.
+
+![Texgroves Panel in Meshgrove: ein Drehknopf mit Geflecht nur auf der Außenseite, die Modelle, die Texturgalerie und die Einstellungen](assets/screenshot-panel.de.png)
 
 ## Mit einer KI
 

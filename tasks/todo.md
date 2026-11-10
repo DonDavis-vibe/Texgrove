@@ -1,6 +1,6 @@
 # Texgrove – Etappen
 
-Plan: `/home/davis/.claude/plans/ich-antworte-einzeln-shiny-kitten.md` (freigegeben 09.11.2026).
+Plan: mit Davis abgestimmt und freigegeben am 09.11.2026 (liegt lokal).
 Ein Release am Ende (Texgrove 1.0.0 mit Meshgrove 0.9.0); die Etappen sind intern.
 
 ## M0 Einrichten
@@ -209,4 +209,12 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
         3MF-Teile, Stapel, Markieren und Pinsel, Abbruch mitten im Export, Pfad über 300 Zeichen.
         Sieben Befunde in Texgrove und drei im Host behoben und nachgeprüft
   - [ ] Davis von Hand: im Windows-Dateidialog eine Datei bzw. ein eigenes Bild wählen
-- [ ] Info an CNC Kitchen (Text entwerfen, Davis schickt)
+- [x] Info an CNC Kitchen: Entwurf (de/en, mit Links) liegt lokal in `out/cnc-kitchen-info.md`;
+      Davis schickt ihn nach dem Release
+- [x] Release vorbereitet (10.11.): Version 1.0.0, CHANGELOG „1.0.0“, README de/en ohne
+      „noch nicht veröffentlicht“, mit Panel-Bild (`assets/screenshot-panel*.png`, Szene:
+      `target/host/readme-shot.sh`), Banner mit Schriftzug
+- [ ] Am Release-Tag, in dieser Reihenfolge: Meshgrove `main` + Tag `v0.9.0` sind gepusht →
+      `crates/texgrove-plugin/Cargo.toml` auf `tag = "v0.9.0"`, `Cargo.lock` ohne lokalen Patch
+      auffrischen, CI bei Push einschalten → Tag `v1.0.0` → Workflow baut `texgrove.wasm` →
+      Repo öffentlich → Website
