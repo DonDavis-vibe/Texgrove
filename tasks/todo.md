@@ -214,7 +214,11 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
 - [x] Release vorbereitet (10.11.): Version 1.0.0, CHANGELOG „1.0.0“, README de/en ohne
       „noch nicht veröffentlicht“, mit Panel-Bild (`assets/screenshot-panel*.png`, Szene:
       `target/host/readme-shot.sh`), Banner mit Schriftzug
-- [ ] Am Release-Tag, in dieser Reihenfolge: Meshgrove `main` + Tag `v0.9.0` sind gepusht →
-      `crates/texgrove-plugin/Cargo.toml` auf `tag = "v0.9.0"`, `Cargo.lock` ohne lokalen Patch
-      auffrischen, CI bei Push einschalten → Tag `v1.0.0` → Workflow baut `texgrove.wasm` →
-      Repo öffentlich → Website
+- [x] Release (10.11.2026, auf Davis' Wort): Meshgrove `main` = cd98dbf gepusht, CI grün auf
+      Linux/Windows/macOS, Tag `v0.9.0`; Texgrove auf `tag = "v0.9.0"` festgelegt (9e9dd78), CI
+      grün, Tag `v1.0.0`, Release „Texgrove 1.0.0“ mit `texgrove.wasm` + Prüfsumme; die
+      veröffentlichte Datei liefert dieselben Bytes wie der lokale Build
+- [ ] Davis: Texgrove-Repo öffentlich machen (vor dem Veröffentlichen des Meshgrove-Entwurfs:
+      dessen Notizen zeigen Texgroves Banner und Release-Seite), Meshgrove-Entwurf veröffentlichen
+- [ ] Website: Abschnitt für Texgrove (Texte de/en, Bilder mit den shot-tools), Version 0.9.0
+- [ ] Davis: Nachricht an CNC Kitchen (`out/cnc-kitchen-info.md`)
