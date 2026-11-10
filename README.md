@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/banner.png" alt="Texgrove" width="100%"></p>
+
 # Texgrove
 
 **Textures as real geometry for 3D prints.** Texgrove puts knurls, hexagons, weaves, wood,
@@ -69,6 +71,7 @@ crates/texgrove-plugin   the Meshgrove plugin (wasm32-wasip2, its own workspace)
 scripts/check.sh         format, clippy, tests, and the plugin build
 scripts/build.sh         target/plugin/texgrove.wasm
 scripts/build-textures.py  makes assets/textures from downloaded sources
+assets/                  icon, banner and the textures that ship
 tasks/todo.md            the milestones and where they stand
 ```
 

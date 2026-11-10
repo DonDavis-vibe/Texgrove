@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/banner.png" alt="Texgrove" width="100%"></p>
+
 # Texgrove
 
 **Texturen als echte Geometrie für 3D-Drucke.** Texgrove bringt Rändel, Waben, Geflecht, Holz,
@@ -72,6 +74,7 @@ crates/texgrove-plugin   das Meshgrove-Plugin (wasm32-wasip2, eigener Workspace)
 scripts/check.sh         Format, Clippy, Tests und der Plugin-Build
 scripts/build.sh         target/plugin/texgrove.wasm
 scripts/build-textures.py  erzeugt assets/textures aus heruntergeladenen Quellen
+assets/                  Icon, Banner und die mitgelieferten Texturen
 tasks/todo.md            die Etappen und ihr Stand
 ```
 
