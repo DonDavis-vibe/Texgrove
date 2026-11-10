@@ -42,6 +42,14 @@ MCP von Linux aus über SSH gesteuert) · **H** Screenshot-Hook mit gescripteten
 | 2.10 | Meshgrove während eines Exports schließen, neu starten: Panel bedienbar | H | ✅ mitten im Stapel beendet: danach Knopf wieder da, kein hängender Fortschritt, keine halbe Datei in der Bibliothek |
 | 2.11 | Pfad über 260 Zeichen als Quelle | A+H | ✅ Quelle mit 303 Zeichen über MCP gelesen und texturiert, in der Prüfung angenommen: `wuerfel_lang – Ziegel.3mf` liegt daneben (312 Zeichen) |
 
+## 3 Release-Kandidat (10.11., Meshgrove 0.9.0 = cd98dbf, Texgrove 1.0.0 = da507ef)
+| Nr | Prüfung | Wie | Ergebnis |
+|---|---|---|---|
+| 3.1 | Kandidat baut in der VM (GUI, STEP, MCP, plugin-run) | A | ✅ |
+| 3.2 | Alle Fälle aus Teil 1 ohne Oberfläche | A | ✅ alle vier Ergebnisdateien (3MF, STL, Adapter mit 1 M Dreiecken, 3MF mit getauschtem Teil) byte-gleich mit Linux |
+| 3.3 | Plugins-Menü mit zwei Plugins | H | ✅ „Bingrove“, „Texgrove“ – kein doppelter Name mehr |
+| 3.4 | Knopf im Info-Bereich | H | ✅ „Textur auftragen …“ neben „In OrcaSlicer öffnen“ |
+
 ## Befunde
 - Keine Windows-eigenen Fehler in Teil 1.
 - Im Fenster gefunden und in Texgrove behoben (754d5f5): Ergebnis-Meldung stand unter dem Knopf
