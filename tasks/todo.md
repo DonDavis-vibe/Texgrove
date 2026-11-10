@@ -228,8 +228,7 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       isolierten Sitzung durchgeklickt, Tag `v1.1.0`, Release gebaut und geprüft. Unter Windows
       nicht geprüft (VM aus)
 - [x] Repo ist öffentlich, Meshgrove 0.9.1 veröffentlicht, Website ausgespielt (10.11.)
-- [ ] Website: neues Panel-Bild liegt lokal in `meshgroveSite/assets/shots/texgrove.png`,
-      noch nicht ausgespielt
+- [x] Website: neues Panel-Bild (1.1.0 mit Reitern) ausgespielt (10.11., Release 20261110-183255)
 - [ ] (erledigt, siehe oben) Davis: Texgrove-Repo öffentlich machen (vor dem Veröffentlichen des Meshgrove-Entwurfs:
       dessen Notizen zeigen Texgroves Banner und Release-Seite), Meshgrove-Entwurf veröffentlichen
 - [ ] Website: Abschnitt für Texgrove (Texte de/en, Bilder mit den shot-tools), Version 0.9.0
