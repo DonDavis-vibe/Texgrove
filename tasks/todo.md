@@ -184,6 +184,14 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       `texgrove-square-1024.png`, `assets/banner.png` + `banner-2000.webp`, Banner oben in beiden
       READMEs; Entwürfe und Prompts in `assets/entwuerfe/`
 - [ ] **Test unter Linux ganz normal lokal** (Davis, 09.11.)
+  - [x] Auf Davis' Ja (10.11.): Release-Build des Host-Branches (1a160de) mit `packaging/install.sh`
+        nach `~/.local/bin` installiert, `texgrove.wasm` (c27f5aa) nach
+        `~/.local/share/meshgrove/plugins/`. Vorher gesichert: Programme vom 03.11., Einstellungen,
+        Kopien der Datenbanken → `target/host/real-backup-2026-11-10/` mit `ZURUECK.md`. Das
+        Datenbankformat ist dasselbe (Version 6). Derselbe Build startet in der isolierten Sitzung
+        mit Texgrove fehlerfrei
+  - [ ] Davis: in Meshgrove unter Einstellungen → Plugins Texgrove installieren, Rechte geben,
+        mit eigenen Modellen durchklicken
 - [ ] **Test in der Windows-VM** (Davis, 09.11.: „vor allem auch“)
   - [x] Host-Branch (ac194ea) baut dort: `meshgrove`, `meshgrove-step`, `meshgrove-mcp`,
         `meshgrove-plugin-run` (10.11., 19 + 6 min)
