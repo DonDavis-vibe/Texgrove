@@ -252,6 +252,9 @@ pub struct PreviewJob {
     /// The file names for which triangles of each get no texture.
     pub plain_marks: String,
     pub textured_marks: String,
+    /// The file name for what there is to say about the look (its warnings).
+    #[serde(default)]
+    pub notes: String,
 }
 
 /// What an export job gets.
@@ -358,6 +361,31 @@ fn warning_text(warning: &pipeline::Warning) -> String {
     }
 }
 
+/// The warnings of several objects of one file in words: the places flattened added up, the
+/// deepest relief against the thinnest object once.
+fn warning_texts(warnings: &[pipeline::Warning]) -> Vec<String> {
+    let mut flattened = 0usize;
+    let mut deepest: Option<(f32, f32)> = None;
+    for warning in warnings {
+        match *warning {
+            pipeline::Warning::Flattened { triangles } => flattened += triangles,
+            pipeline::Warning::TooDeep { depth, smallest } => {
+                if deepest.is_none_or(|(d, s)| depth * s > d * smallest) {
+                    deepest = Some((depth, smallest));
+                }
+            }
+        }
+    }
+    let mut texts = Vec::new();
+    if let Some((depth, smallest)) = deepest {
+        texts.push(warning_text(&pipeline::Warning::TooDeep { depth, smallest }));
+    }
+    if flattened > 0 {
+        texts.push(warning_text(&pipeline::Warning::Flattened { triangles: flattened }));
+    }
+    texts
+}
+
 /// A name for the cache file of what `parts` describe.
 pub fn cache_key(parts: &impl Hash) -> String {
     let mut hasher = DefaultHasher::new();
@@ -389,6 +417,21 @@ pub fn load(source: &Source, budget: u32) -> Result<Mesh, PluginError> {
         return Err(PluginError::Failed(crate::tf!("{} hat keine Dreiecke", "{} has no triangles", source.name)));
     }
     Ok(weld::weld_default(&mesh).mesh)
+}
+
+/// Whether Meshgrove handed over fewer triangles than the model has: a model above the budget
+/// it was read with comes simplified, and what was simplified says nothing about holes.
+pub fn simplified(source: &Source, part: Option<&Part>, got: &Mesh) -> bool {
+    real_triangles(source, part).is_some_and(|real| real > got.triangles.len() + got.triangles.len() / 20)
+}
+
+/// How many triangles the model (or one object of it) has in its file, as Meshgrove counts them.
+pub fn real_triangles(source: &Source, part: Option<&Part>) -> Option<usize> {
+    if let Some(part) = part {
+        return Some(part.triangles as usize);
+    }
+    let facts: serde_json::Value = serde_json::from_str(&library::describe(&source.reference).ok()?).ok()?;
+    facts.get("triangles")?.as_u64().map(|n| n as usize)
 }
 
 /// Lets the work go on unless the user stopped it, and tells Meshgrove how far it is.
@@ -455,6 +498,7 @@ pub fn look(source: &Source, layers: &[Recipe], nozzle: f32, read: u32, budget: 
         textured_out: Vec::new(),
         warnings: Vec::new(),
     };
+    let mut from_texturing = Vec::new();
     // A model is one mesh; a project is its objects, each textured in its own coordinates, as
     // the file to keep will have it, and then put where it stands.
     let whole = [None];
@@ -470,8 +514,9 @@ pub fn look(source: &Source, layers: &[Recipe], nozzle: f32, read: u32, budget: 
             None => mesh,
         };
         // A model with holes or fins still gets its texture, but the user should know.
+        // (Not when Meshgrove simplified a big one for this look: that tears holes of its own.)
         let report = texgrove_core::diagnostics::diagnose(&mesh);
-        if !skipped && !report.closed() {
+        if !skipped && !report.closed() && !simplified(source, *piece, &mesh) {
             let name = piece.map_or(source.name.as_str(), |part| part.name.as_str());
             look.warnings.push(crate::tf!(
                 "{} ist nicht sauber geschlossen ({} offene Kanten, {} mit mehr als zwei Flächen). Die Textur wird trotzdem aufgetragen; der Slicer repariert so etwas meist selbst.",
@@ -491,11 +536,12 @@ pub fn look(source: &Source, layers: &[Recipe], nozzle: f32, read: u32, budget: 
         let finish = recipe::preview_finish(layers, &maps, nozzle, budget / pieces.len());
         let (done, untouched) = texture(&mesh, source, *piece, layers, &maps, &finish)?;
         look.plain_out.extend(untouched);
-        look.warnings.extend(done.warnings.iter().map(warning_text));
+        from_texturing.extend(done.warnings.iter().copied());
         look.plain.append(&place(mesh));
         look.textured_out.extend(&done.left_out);
         look.textured.append(&place(done.mesh));
     }
+    look.warnings.extend(warning_texts(&from_texturing));
     Ok(look)
 }
 
@@ -509,7 +555,11 @@ pub fn preview(job: &PreviewJob) -> Result<serde_json::Value, PluginError> {
     write_marks(&format!("{PREVIEW_DIR}/{}", job.plain_marks), &look.plain_out)?;
     write_mesh(&format!("{PREVIEW_DIR}/{}", job.textured), &look.textured)?;
     write_marks(&format!("{PREVIEW_DIR}/{}", job.textured_marks), &look.textured_out)?;
-    prune(PREVIEW_DIR, 24);
+    if !job.notes.is_empty() {
+        let notes = serde_json::to_vec(&look.warnings).unwrap_or_default();
+        std::fs::write(format!("{PREVIEW_DIR}/{}", job.notes), notes).map_err(|e| failed(&job.notes, e))?;
+    }
+    prune(PREVIEW_DIR, 30);
     Ok(serde_json::json!({"triangles": look.textured.triangles.len(), "warnings": look.warnings}))
 }
 
@@ -539,7 +589,7 @@ pub fn export(job: &ExportJob) -> Result<Exported, PluginError> {
         triangles: textured.mesh.triangles.len(),
         refined: textured.refined_triangles,
         edge: textured.edge,
-        warnings: textured.warnings.iter().map(warning_text).collect(),
+        warnings: warning_texts(&textured.warnings),
     })
 }
 
@@ -572,7 +622,7 @@ fn export_parts(job: &ExportJob, maps: &[Heightmap]) -> Result<Exported, PluginE
             finish.triangles = ((finish.triangles as f64 * share) as usize).max(20_000);
             let (done, _) = texture(&mesh, &job.source, Some(part), &job.layers, maps, &finish)?;
             refined += done.refined_triangles;
-            warnings.extend(done.warnings.iter().map(warning_text));
+            warnings.extend(done.warnings.iter().copied());
             edge = edge.max(done.edge);
             done.mesh
         } else {
@@ -593,7 +643,14 @@ fn export_parts(job: &ExportJob, maps: &[Heightmap]) -> Result<Exported, PluginE
     if !as_3mf {
         write_file(job, &whole)?;
     }
-    Ok(Exported { file: job.file.clone(), replace, triangles: total, refined, edge, warnings })
+    Ok(Exported {
+        file: job.file.clone(),
+        replace,
+        triangles: total,
+        refined,
+        edge,
+        warnings: warning_texts(&warnings),
+    })
 }
 
 /// Writes the mesh as the file the job names, in the format the recipe says.
@@ -662,6 +719,14 @@ pub fn read_mesh(path: &str) -> Option<MeshData> {
 }
 
 /// Whether a preview file is there.
+/// What a preview job had to say about its look, kept beside it; nothing when it kept none.
+pub fn notes(name: &str) -> Vec<String> {
+    std::fs::read(format!("{PREVIEW_DIR}/{name}"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
 pub fn exists(name: &str) -> bool {
     std::fs::metadata(format!("{PREVIEW_DIR}/{name}")).is_ok()
 }

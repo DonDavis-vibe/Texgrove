@@ -111,8 +111,10 @@ struct Batch {
     failed: Vec<(usize, String)>,
     /// What the finished files had to say.
     warned: Vec<(usize, String)>,
-    /// Files handed over so far in this batch.
+    /// Files handed over so far in this batch, and how many of them came from outside the
+    /// library (those go into a folder of their own, the others beside their originals).
     handed: usize,
+    outside: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -368,7 +370,24 @@ impl TexturePanel {
                 s.message = Some(match outcome {
                     BundleOutcome::Applied { .. } => (
                         Level::Success,
-                        tf!("{} Datei(en) liegen in der Bibliothek", "{} file(s) are in the library", s.batch.handed),
+                        match (s.batch.handed, s.batch.outside) {
+                            (1, 0) => tr(
+                                "Die Datei liegt neben ihrem Original in der Bibliothek",
+                                "The file is in the library, beside its original",
+                            )
+                            .into(),
+                            (n, 0) => tf!(
+                                "{} Dateien liegen neben ihren Originalen in der Bibliothek",
+                                "{} files are in the library, each beside its original",
+                                n
+                            ),
+                            (1, _) => tr(
+                                "Die Datei liegt im Ordner „Texgrove“ der Bibliothek",
+                                "The file is in the library's folder “Texgrove”",
+                            )
+                            .into(),
+                            (n, _) => tf!("{} Dateien liegen in der Bibliothek", "{} files are in the library", n),
+                        },
                     ),
                     BundleOutcome::Queued => (Level::Info, tr("Wartet im Review", "Waiting in the review").into()),
                     BundleOutcome::Refused => (
@@ -574,11 +593,15 @@ impl PanelState {
             }
             let (file, marks) = if self.plain { (plain, plain_marks) } else { (textured, textured_marks) };
             self.show(file, Some(marks), &source.reference);
+            // What was said about this look when it was made, not about the one shown before.
+            self.view.warnings = work::notes(&format!("w-{key}"));
             return effects;
         }
         // Meanwhile what is shown stays, so the picture does not jump; a model not seen yet
         // shows as it is, if that is there already.
         if self.view.shown_of != source.reference {
+            // Another model: what was said about the last one does not hold for it.
+            self.view.warnings.clear();
             if work::exists(&plain) {
                 self.show(plain.clone(), None, &source.reference);
             } else {
@@ -592,8 +615,16 @@ impl PanelState {
         if let Some((running, ..)) = self.view.running.take() {
             effects.push(Effect::CancelJob { job: format!("preview:{running}") });
         }
-        let job =
-            PreviewJob { source, layers: look, nozzle: self.host.nozzle, plain, textured, plain_marks, textured_marks };
+        let job = PreviewJob {
+            source,
+            layers: look,
+            nozzle: self.host.nozzle,
+            plain,
+            textured,
+            plain_marks,
+            textured_marks,
+            notes: format!("w-{key}"),
+        };
         self.view.running = Some((key.clone(), 0.0, String::new()));
         self.view.failed = None;
         effects.push(Effect::StartJobs {
@@ -728,6 +759,9 @@ impl PanelState {
             })
             .collect::<Vec<_>>();
         self.batch.handed += files.len();
+        if !in_library {
+            self.batch.outside += files.len();
+        }
         let texture = crate::textures::name(&self.layers[0].texture);
         let title = match &done[..] {
             [(i, _)] => format!("{} – {texture}", self.sources[*i].stem()),
@@ -879,6 +913,18 @@ impl PanelState {
         }
         if !self.sources.is_empty() {
             children.extend(self.tools());
+        }
+        // How the work goes and how it ended stand here, below the preview, where they are in
+        // sight however far the settings beside it are scrolled.
+        if let Some((i, fraction, message)) = &self.batch.current {
+            let left = self.batch.queue.len();
+            children.push(Node::Progress {
+                fraction: Some(*fraction),
+                text: Some(tf!("{}: {} (noch {})", "{}: {} ({} more)", self.sources[*i].name, message, left)),
+            });
+        }
+        if let Some((level, text)) = &self.message {
+            children.push(Node::Notice { level: *level, text: text.clone() });
         }
         Node::column(children)
     }
@@ -1089,7 +1135,7 @@ impl PanelState {
         children.push(Node::row(vec![
             Node::Button {
                 id: "add_layer".into(),
-                label: tr("＋ Ebene", "＋ Layer").into(),
+                label: tr("+ Ebene", "+ Layer").into(),
                 primary: false,
                 enabled: self.layers.len() < 4,
             },
@@ -1158,8 +1204,10 @@ impl PanelState {
                 style: TextStyle::Weak,
             });
         }
-        for line in tiles.chunks(5) {
-            children.push(Node::row(line.to_vec()));
+        // One row: Meshgrove wraps it to the width the panel has, so no tile is cut off in a
+        // narrow window.
+        if !tiles.is_empty() {
+            children.push(Node::row(tiles));
         }
         let own = r.texture.starts_with(crate::textures::OWN);
         let credit = crate::textures::credit(&r.texture);
@@ -1321,12 +1369,8 @@ impl PanelState {
             0 | 1 => tr("Textur auftragen", "Apply texture").to_owned(),
             n => tf!("Auf alle {} Modelle auftragen", "Apply to all {} models", n),
         };
-        if let Some((i, fraction, message)) = &self.batch.current {
-            let left = self.batch.queue.len();
-            children.push(Node::Progress {
-                fraction: Some(*fraction),
-                text: Some(tf!("{}: {} (noch {})", "{}: {} ({} more)", self.sources[*i].name, message, left)),
-            });
+        // The column's last line: the button, which turns into "cancel" while files are made.
+        if self.batch.current.is_some() {
             children.push(Node::Button {
                 id: "cancel".into(),
                 label: tr("Abbrechen", "Cancel").into(),
@@ -1335,9 +1379,6 @@ impl PanelState {
             });
         } else {
             children.push(Node::Button { id: "apply".into(), label, primary: true, enabled: count > 0 });
-        }
-        if let Some((level, text)) = &self.message {
-            children.push(Node::Notice { level: *level, text: text.clone() });
         }
         Node::Scroll { max_height: None, children }
     }

@@ -255,6 +255,10 @@ fn inspect(args: &Args) -> Result<ToolOutput, PluginError> {
     let source = args.source()?;
     let mesh = work::load(&source, TOOL_SOURCE)?;
     let report = diagnose(&mesh);
+    // A big model comes simplified, which tears holes of its own: then nothing is said about
+    // holes, and the triangle count is the file's.
+    let simplified = work::simplified(&source, None, &mesh);
+    let triangles = work::real_triangles(&source, None).unwrap_or(report.triangles);
     let size = report.bounds.size();
     let inside = select::inside(&mesh, &Topology::build(&mesh), &Bvh::build(&mesh), 30.0);
     let (mut inside_area, mut area) = (0.0f64, 0.0f64);
@@ -271,10 +275,10 @@ fn inspect(args: &Args) -> Result<ToolOutput, PluginError> {
         "name": source.name,
         // Rounded as f64: a rounded f32 in a list is written out as 179.60000610351562.
         "size_mm": size.map(|v| (f64::from(v) * 10.0).round() / 10.0),
-        "triangles": report.triangles,
-        "closed": report.closed(),
+        "triangles": triangles,
+        "closed": (!simplified).then(|| report.closed()),
         "pieces": report.shells,
-        "open_edges": report.open_edges,
+        "open_edges": (!simplified).then_some(report.open_edges),
         "parts": source.parts.iter().map(|p| json!({"name": p.name, "triangles": p.triangles})).collect::<Vec<_>>(),
         "inside_share": if area > 0.0 { ((inside_area / area) * 100.0).round() / 100.0 } else { 0.0 },
         "hints": {

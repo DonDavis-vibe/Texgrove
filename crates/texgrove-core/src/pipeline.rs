@@ -90,7 +90,7 @@ pub struct Textured {
 }
 
 /// Something about a result worth a look before printing.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Warning {
     /// The relief goes deeper than a tenth of the part's smallest size: walls may meet or
     /// break through.
