@@ -2,7 +2,7 @@
 
 Geprüft am 2026-11-10 in der VM `meshgrove-win11` (Windows 11 Enterprise Eval, Software-Renderer)
 gegen Meshgrove-Branch `claude/happy-mahavira-d8760c` (ac194ea, Release-Build in der VM) und
-Texgrove cea1849. Ziel: Fehler finden, die es unter Linux nicht gibt.
+Texgrove cea1849 (Teil 1) bzw. 754d5f5 und Host e4f6513 (Teil 2). Ziel: Fehler finden, die es unter Linux nicht gibt.
 
 Wie geprüft wird: **A** automatisch per SSH ohne Oberfläche (`target/host/vm/tex-headless.ps1`,
 MCP von Linux aus über SSH gesteuert) · **H** Screenshot-Hook mit gescripteten Klicks
@@ -27,21 +27,30 @@ MCP von Linux aus über SSH gesteuert) · **H** Screenshot-Hook mit gescripteten
 | 1.7 | MCP: ohne „Bibliothek lesen“ | A | ✅ klare Absage (unter Linux geprüft, gleicher Code) |
 | 1.8 | MCP: `texgrove_inspect`, `texgrove_preview`, `texgrove_apply` | A | ✅ Bild kommt, Job startet, `meshgrove-mcp.exe` wartet nach dem Schließen 6 s auf den Job, Vorschlag „bin_2x1_6u – Waben“ steht in der Prüfung |
 
-## 2 Im Fenster (offen – Konsole anmelden)
+## 2 Im Fenster (10.11., Fenster 1280×800, Software-Renderer „Microsoft Basic Render Driver“)
 | Nr | Prüfung | Wie | Ergebnis |
 |---|---|---|---|
-| 2.1 | Rechtsklick auf `Würfel – groß.stl` → „Textur auftragen …“ → Panel mit Vorschau, ohne „Bibliothek lesen“ | H | – |
-| 2.2 | Mehrfachauswahl + Rechtsklick: alle Modelle im Panel | H | – |
-| 2.3 | „Textur auftragen“: Datei neben dem Original, Tag „Texturiert“, Notiz; Rückgängig im Verlauf entfernt nur die Kopie | H | – |
-| 2.4 | Zweimal dieselbe Textur: zweiter Name frei (`… (2).3mf`); Groß-/Klein-Kollision (`würfel – groß – ziegel.3mf` liegt schon da) | H | – |
-| 2.5 | Vorschlag aus 1.8 in der Prüfung annehmen | H | – |
-| 2.6 | 3MF-Projekt: Teile anhaken, Vorschau, Export; Ergebnis im Slicer | H + Davis | – |
-| 2.7 | Fläche markieren, Umschalt+Klick, Pinselstrich, Rückgängig; kein Einfrieren | H | – |
-| 2.8 | „Datei wählen …“ und „Eigenes Bild …“ (Windows-Dateidialog) | M | – |
-| 2.9 | Panel-Suche mit „Bibliothek lesen“ | H | – |
-| 2.10 | Meshgrove während eines Exports schließen, neu starten: Panel bedienbar | H | – |
-| 2.11 | Pfad über 260 Zeichen als Quelle | H | – |
+| 2.1 | Rechtsklick auf `Würfel – groß.stl` → „Textur auftragen …“ → Panel mit Vorschau, ohne „Bibliothek lesen“ | H | ✅ (`out/win-c04-panel.png`); Bingrove (API 0.1) läuft auf demselben Host weiter |
+| 2.2 | Mehrfachauswahl + Rechtsklick: alle Modelle im Panel | H | ✅ drei Modelle dazu, das erste davon gewählt |
+| 2.3 | „Textur auftragen“: Datei neben dem Original, Tag „Texturiert“; Rückgängig im Verlauf entfernt nur die Kopie | H | ✅ `Würfel – groß – Ziegel.3mf`, Tag in der Seitenleiste, Verlaufseintrag; Rückgängig nimmt genau diese Datei weg |
+| 2.4 | Zweimal dieselbe Textur: zweiter Name frei | H | ✅ `… (2).3mf`, `(3)`, `(4)` · Groß-/Klein-Kollision: – offen |
+| 2.5 | Vorschlag der KI (aus 1.8) in der Prüfung annehmen | H | ✅ „1 Datei neben bin_2x1_6u.stl in Gridfinity\Schublade“, nach „Alle annehmen“ liegt sie dort |
+| 2.6 | 3MF-Projekt: Teileliste, Vorschau, Export | H | ✅ sieben Teile mit Haken, Vorschau an ihrem Platz, Export tauscht alle sieben Objekte (ZIP heil, in Texgrove wieder lesbar); im Slicer: Davis |
+| 2.7 | Fläche markieren, Umschalt+Klick, Pinselstrich | H | ✅ mit grober Vorschau (66 k Dreiecke). ❗ Mit feiner Vorschau (526 k Dreiecke) schafft der Software-Renderer der VM kein Bild pro Sekunde mehr, Klicks kommen dann nicht an – liegt an der VM ohne Grafikkarte, nicht an Windows (unter Linux mit Software-Renderer genauso zäh) |
+| 2.8 | „Datei wählen …“ und „Eigenes Bild …“ (Windows-Dateidialog) | M | – offen |
+| 2.9 | Stapel: „Auf alle 4 Modelle auftragen“ | H | ✅ vier Dateien neben ihren Originalen, ein Verlaufseintrag, Adapter mit 1 M Dreiecken dabei |
+| 2.10 | Meshgrove während eines Exports schließen, neu starten: Panel bedienbar | H | – offen |
+| 2.11 | Pfad über 260 Zeichen als Quelle | H | – offen |
 
 ## Befunde
 - Keine Windows-eigenen Fehler in Teil 1.
+- Im Fenster gefunden und in Texgrove behoben (754d5f5): Ergebnis-Meldung stand unter dem Knopf
+  außer Sicht → jetzt unter der Vorschau; „＋ Ebene“ war ein leeres Kästchen → „+“; Warnungen
+  einer Vorschau blieben beim Wechsel des Modells stehen und fehlten nach einem Neustart;
+  Warnungen pro 3MF-Teil doppelt → eine Zeile; „nicht geschlossen“ bei Modellen, die Meshgrove
+  zum Lesen vereinfacht hat, war ein Fehlalarm.
+- Im Fenster gefunden, an die Host-Session gemeldet und dort behoben (ad19322, c43598d, 1a160de):
+  Zeilen brachen in einem geteilten Panel nicht um (Galerie abgeschnitten, Rollbalken über dem
+  Knopf „Textur auftragen“); „✧“ war unter Windows ein leeres Kästchen; der Screenshot-Haken
+  wartete in einem ruhenden Fenster ewig.
 - `inspect` schrieb die Größe als `179.60000610351562` (auf beiden Systemen) → behoben (cea1849).
