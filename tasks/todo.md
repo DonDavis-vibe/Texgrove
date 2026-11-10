@@ -222,7 +222,15 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       einer Achse lief durch den halben Strahlenbaum) → behoben, Version 1.0.1, Tag `v1.0.1`,
       Release gebaut. Meshgrove bekam 0.9.1 (Galerie zeigt die neue Datei sofort); 0.9.0 wurde
       nie veröffentlicht
-- [ ] Davis: Texgrove-Repo öffentlich machen (vor dem Veröffentlichen des Meshgrove-Entwurfs:
+- [x] 1.1.0 (10.11. abends, auf Davis' Wunsch): Panel mit vier Reitern (Textur, Wohin, Modell,
+      Datei), Knopf „Textur auftragen“ darüber; im Reiter Datei „Neues Modell dazusetzen“ auf
+      eine Druckliste (Name frei, sonst „Texgrove“), das KI-Werkzeug kennt `print_list`. In der
+      isolierten Sitzung durchgeklickt, Tag `v1.1.0`, Release gebaut und geprüft. Unter Windows
+      nicht geprüft (VM aus)
+- [x] Repo ist öffentlich, Meshgrove 0.9.1 veröffentlicht, Website ausgespielt (10.11.)
+- [ ] Website: neues Panel-Bild liegt lokal in `meshgroveSite/assets/shots/texgrove.png`,
+      noch nicht ausgespielt
+- [ ] (erledigt, siehe oben) Davis: Texgrove-Repo öffentlich machen (vor dem Veröffentlichen des Meshgrove-Entwurfs:
       dessen Notizen zeigen Texgroves Banner und Release-Seite), Meshgrove-Entwurf veröffentlichen
 - [ ] Website: Abschnitt für Texgrove (Texte de/en, Bilder mit den shot-tools), Version 0.9.0
 - [ ] Davis: Nachricht an CNC Kitchen (`out/cnc-kitchen-info.md`)
