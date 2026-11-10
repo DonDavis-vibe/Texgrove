@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "texgrove-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "clap",
  "texgrove-core",
@@ -372,7 +372,7 @@ dependencies = [
 
 [[package]]
 name = "texgrove-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "libm",
  "png",

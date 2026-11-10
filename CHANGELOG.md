@@ -4,6 +4,12 @@ Texgrove is a Meshgrove plugin: a release is one `texgrove.wasm`, installed unde
 Plugins*. It needs Meshgrove 0.9.0 or newer. The command line and the kernel carry the same
 version number.
 
+## 1.0.1 – 2026-11-10
+
+- A stamp on the side of a round part (a knob, a cup) took many times longer than on a flat
+  face: rays running exactly along an axis walked half of the ray tree. They take the short
+  way now; the preview of such a stamp comes in seconds again.
+
 ## 1.0.0 – 2026-11-10
 
 The first release: textures as real geometry, on your models, inside Meshgrove.

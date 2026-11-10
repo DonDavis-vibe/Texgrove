@@ -308,9 +308,17 @@ fn best_cut(order: &[u32], boxes: &[Bounds], centres: &[P3], centre_bounds: &Bou
 fn ray_box(bounds: &Bounds, origin: P3, inverse: P3, nearest: f32, farthest: f32) -> Option<f32> {
     let (mut enter, mut leave) = (nearest, farthest);
     for axis in 0..3 {
+        // A ray that does not move along this axis is between the two faces all the way or
+        // never. Worked out with 0 × ∞ instead, "never" came out as "enters at infinity", which
+        // an endless ray took for a pass, and such a ray walked half the tree.
+        if inverse[axis].is_infinite() {
+            if origin[axis] < bounds.min[axis] || origin[axis] > bounds.max[axis] {
+                return None;
+            }
+            continue;
+        }
         let t1 = (bounds.min[axis] - origin[axis]) * inverse[axis];
         let t2 = (bounds.max[axis] - origin[axis]) * inverse[axis];
-        // `min` and `max` skip a NaN (a ray along a face of the box: 0 × ∞).
         enter = enter.max(t1.min(t2));
         leave = leave.min(t1.max(t2));
     }
@@ -360,6 +368,22 @@ pub fn ray_slowly(mesh: &Mesh, origin: P3, direction: P3, nearest: f32, farthest
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ray_along_an_axis_misses_the_boxes_beside_it() {
+        let bounds = Bounds { min: [0.0, 0.0, 0.0], max: [1.0, 1.0, 1.0] };
+        let along_x = [1.0f32, 0.0, 0.0].map(|d| 1.0 / d);
+        // Through the box, with and without an end to the ray.
+        assert!(ray_box(&bounds, [-1.0, 0.5, 0.5], along_x, 0.0, f32::INFINITY).is_some());
+        assert!(ray_box(&bounds, [-1.0, 0.5, 0.5], along_x, 0.0, 10.0).is_some());
+        // Along one of its faces counts as through it.
+        assert!(ray_box(&bounds, [-1.0, 0.0, 0.5], along_x, 0.0, f32::INFINITY).is_some());
+        // Beside it, on either side: no end to the ray must not turn that into a pass.
+        for origin in [[-1.0, 2.0, 0.5], [-1.0, -2.0, 0.5], [-1.0, 0.5, 2.0], [-1.0, 0.5, -2.0]] {
+            assert!(ray_box(&bounds, origin, along_x, 0.0, f32::INFINITY).is_none(), "{origin:?}");
+            assert!(ray_box(&bounds, origin, along_x, 0.0, 10.0).is_none(), "{origin:?}");
+        }
+    }
     use crate::shapes;
 
     /// Numbers between 0 and 1 that are the same on every run.
