@@ -189,6 +189,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 [[package]]
 name = "meshgrove-plugin-api"
 version = "0.2.0"
+source = "git+https://github.com/DonDavis-vibe/MeshGrove?tag=v0.9.0#cd98dbfdf548b215ff50a9eba7de7ffa0088eeb4"
 dependencies = [
  "serde",
  "serde_json",

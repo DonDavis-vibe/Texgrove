@@ -1,13 +1,10 @@
 name: CI
 
-# Until Meshgrove 0.9.0 is tagged, the plugin API this plugin needs is on no public branch, so the
-# plugin cannot build here and nothing starts by itself. With the tag pinned in
-# crates/texgrove-plugin/Cargo.toml, add:
-#   push:
-#     branches: [main]
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
