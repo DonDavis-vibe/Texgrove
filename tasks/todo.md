@@ -218,6 +218,10 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
       Linux/Windows/macOS, Tag `v0.9.0`; Texgrove auf `tag = "v0.9.0"` festgelegt (9e9dd78), CI
       grün, Tag `v1.0.0`, Release „Texgrove 1.0.0“ mit `texgrove.wasm` + Prüfsumme; die
       veröffentlichte Datei liefert dieselben Bytes wie der lokale Build
+- [x] Nachzügler (10.11.): Stempel auf runder Seite war ein Vielfaches langsamer (Strahl entlang
+      einer Achse lief durch den halben Strahlenbaum) → behoben, Version 1.0.1, Tag `v1.0.1`,
+      Release gebaut. Meshgrove bekam 0.9.1 (Galerie zeigt die neue Datei sofort); 0.9.0 wurde
+      nie veröffentlicht
 - [ ] Davis: Texgrove-Repo öffentlich machen (vor dem Veröffentlichen des Meshgrove-Entwurfs:
       dessen Notizen zeigen Texgroves Banner und Release-Seite), Meshgrove-Entwurf veröffentlichen
 - [ ] Website: Abschnitt für Texgrove (Texte de/en, Bilder mit den shot-tools), Version 0.9.0
