@@ -195,7 +195,10 @@ Aufgefallen: Kantenlänge wirkt in Stufen (halbiert oder nicht) – ein Dreiecks
   - [x] Über `meshgrove-mcp.exe --local` (von hier per SSH gesteuert): `texgrove_inspect`,
         `texgrove_preview` (Bild), `texgrove_apply` → Job, Prozess wartet 6 s, Vorschlag
         „bin_2x1_6u – Waben“ steht in der Prüfung
-  - [ ] Im Fenster klicken (`target/host/vm/vmcase.sh`): Rechtsklick → Panel → Vorschau →
-        Auftragen neben das Original, Vorschlag annehmen, Malen, Dateidialog. **Braucht Davis:
-        Konto „test“ an der VM-Konsole anmelden** (kein Auto-Login, Passwort tippe ich nicht)
+  - [x] Im Fenster geklickt (10.11., `target/host/vm/vmcase.sh`, Ergebnisse in
+        `tasks/windows-pruefplan.md`): Rechtsklick, Mehrfachauswahl, Vorschau, Auftragen neben das
+        Original, freie Namen auch bei anderer Groß-/Kleinschreibung, Rückgängig, Prüfung annehmen,
+        3MF-Teile, Stapel, Markieren und Pinsel, Abbruch mitten im Export, Pfad über 300 Zeichen.
+        Sieben Befunde in Texgrove und drei im Host behoben und nachgeprüft
+  - [ ] Davis von Hand: im Windows-Dateidialog eine Datei bzw. ein eigenes Bild wählen
 - [ ] Info an CNC Kitchen (Text entwerfen, Davis schickt)
