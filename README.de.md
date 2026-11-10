@@ -27,7 +27,7 @@ und auch eine KI wie Claude kann es bedienen.
 
 ## Installieren
 
-Texgrove braucht Meshgrove **0.9.0 oder neuer**.
+Texgrove braucht Meshgrove **0.9.1 oder neuer**.
 
 1. `texgrove.wasm` und `texgrove.wasm.sha256` aus den
    [Releases](https://github.com/DonDavis-vibe/Texgrove/releases) laden und prüfen:

@@ -1,7 +1,7 @@
 # Changelog
 
 Texgrove is a Meshgrove plugin: a release is one `texgrove.wasm`, installed under *Settings →
-Plugins*. It needs Meshgrove 0.9.0 or newer. The command line and the kernel carry the same
+Plugins*. It needs Meshgrove 0.9.1 or newer. The command line and the kernel carry the same
 version number.
 
 ## 1.0.1 – 2026-11-10
