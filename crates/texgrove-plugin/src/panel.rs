@@ -5,10 +5,10 @@ use std::cell::RefCell;
 
 use meshgrove_plugin_api::guest::{self, GuestPanel, MeshData, library};
 use meshgrove_plugin_api::ui::{
-    Choice, Effect, Event, FormRow, JobSpec, Level, MeshOverlay, MeshPaint, Node, PaintTool, StrokePhase, TableColumn,
-    TableRow, TextStyle, Unit, View,
+    Choice, Effect, Event, FormRow, JobSpec, Level, MeshOverlay, MeshPaint, Node, PaintTool, StrokePhase, Tab,
+    TableColumn, TableRow, TextStyle, Unit, View,
 };
-use meshgrove_plugin_api::{Bundle, HostInfo};
+use meshgrove_plugin_api::{Bundle, BundleItem, BundleList, HostInfo, ListKind};
 use serde::{Deserialize, Serialize};
 
 use crate::lang::{self, tr};
@@ -38,6 +38,11 @@ pub struct PanelState {
     /// The brush's radius in mm and how much of it marks fully, in percent.
     pub brush: f32,
     pub hardness: f32,
+    /// The tab of the settings in front: texture, where, models, file.
+    pub tab: usize,
+    /// Put what is made onto a print list as well, and the list's name (none: [`LIST`]).
+    pub to_list: bool,
+    pub list_name: String,
     /// Strokes taken back, newest last, for "redo".
     #[serde(skip)]
     undone: Vec<Stroke>,
@@ -77,6 +82,8 @@ pub enum Tool {
 }
 
 /// The colour of what gets no texture, and of fresh marks until the preview has caught up.
+/// The print list Texgrove's files go onto when the user names none.
+const LIST: &str = "Texgrove";
 const LEFT_OUT: &str = "#f0883e";
 const INCLUDED: &str = "#3fb950";
 
@@ -372,29 +379,34 @@ impl TexturePanel {
             }
             Event::BundleFinished { outcome, .. } => {
                 use meshgrove_plugin_api::ui::BundleOutcome;
+                // Where the files went, and the print list if they were put on one.
+                let landed = |s: &PanelState| {
+                    let mut text: String = match (s.batch.handed, s.batch.outside) {
+                        (1, 0) => tr(
+                            "Die Datei liegt neben ihrem Original in der Bibliothek",
+                            "The file is in the library, beside its original",
+                        )
+                        .into(),
+                        (n, 0) => tf!(
+                            "{} Dateien liegen neben ihren Originalen in der Bibliothek",
+                            "{} files are in the library, each beside its original",
+                            n
+                        ),
+                        (1, _) => tr(
+                            "Die Datei liegt im Ordner „Texgrove“ der Bibliothek",
+                            "The file is in the library's folder “Texgrove”",
+                        )
+                        .into(),
+                        (n, _) => tf!("{} Dateien liegen in der Bibliothek", "{} files are in the library", n),
+                    };
+                    if s.to_list {
+                        text += &tf!(" und auf der Druckliste „{}“", " and on the print list “{}”", s.print_list());
+                    }
+                    text
+                };
                 s.message = Some(match outcome {
-                    BundleOutcome::Applied { .. } => (
-                        Level::Success,
-                        match (s.batch.handed, s.batch.outside) {
-                            (1, 0) => tr(
-                                "Die Datei liegt neben ihrem Original in der Bibliothek",
-                                "The file is in the library, beside its original",
-                            )
-                            .into(),
-                            (n, 0) => tf!(
-                                "{} Dateien liegen neben ihren Originalen in der Bibliothek",
-                                "{} files are in the library, each beside its original",
-                                n
-                            ),
-                            (1, _) => tr(
-                                "Die Datei liegt im Ordner „Texgrove“ der Bibliothek",
-                                "The file is in the library's folder “Texgrove”",
-                            )
-                            .into(),
-                            (n, _) => tf!("{} Dateien liegen in der Bibliothek", "{} files are in the library", n),
-                        },
-                    ),
-                    BundleOutcome::Queued => (Level::Info, tr("Wartet im Review", "Waiting in the review").into()),
+                    BundleOutcome::Applied { .. } => (Level::Success, landed(&s)),
+                    BundleOutcome::Queued => (Level::Info, tr("Wartet in der Prüfung", "Waiting in the review").into()),
                     BundleOutcome::Refused => (
                         Level::Error,
                         tr(
@@ -434,6 +446,14 @@ impl PanelState {
         source.find_parts();
         self.sources.push(source);
         self.sources.len() - 1
+    }
+
+    /// The print list the files go onto: the name typed in, or Texgrove's own.
+    fn print_list(&self) -> String {
+        match self.list_name.trim() {
+            "" => LIST.to_owned(),
+            name => name.to_owned(),
+        }
     }
 
     /// The layer the settings show.
@@ -514,6 +534,18 @@ impl PanelState {
             ("search", _) => {
                 self.search = text.trim().to_owned();
                 self.run_search();
+                return false;
+            }
+            ("tabs", _) => {
+                self.tab = value.as_u64().unwrap_or(0) as usize;
+                return false;
+            }
+            ("to_list", _) => {
+                self.to_list = value.as_bool().unwrap_or(self.to_list);
+                return false;
+            }
+            ("list_name", _) => {
+                self.list_name = text.trim().to_owned();
                 return false;
             }
             // The file's quality and format are the same for all layers.
@@ -773,12 +805,20 @@ impl PanelState {
             [(i, _)] => format!("{} – {texture}", self.sources[*i].stem()),
             more => tf!("{} auf {} Modellen", "{} on {} models", texture, more.len()),
         };
+        // On a print list too, if asked: Meshgrove adds to a list of that name or makes it.
+        let lists = if self.to_list {
+            let items = files.iter().map(|file| BundleItem { path: file.path.clone(), quantity: 1 }).collect();
+            vec![BundleList { name: self.print_list(), kind: ListKind::Print, items }]
+        } else {
+            Vec::new()
+        };
         vec![Effect::ApplyBundle {
             bundle: Bundle {
                 title,
                 folder: (!in_library).then(|| "Texgrove".to_owned()),
                 files,
                 tags: vec![tag],
+                lists,
                 ..Bundle::default()
             },
         }]
@@ -1042,7 +1082,8 @@ impl PanelState {
     fn settings_part(&self) -> Node {
         let r = self.recipe();
         let row = |label: &str, node: Node| FormRow { label: label.into(), node };
-        let mut children = vec![Node::heading(tr("Modelle", "Models"))];
+        // Four tabs, as in Bingrove's panel; each gathers its nodes in `children` in turn.
+        let mut children = Vec::new();
         if !self.sources.is_empty() {
             children.push(Node::Table {
                 id: "sources".into(),
@@ -1122,7 +1163,7 @@ impl PanelState {
             children.push(Node::Group { title: Some(tr("Teile", "Parts").into()), collapsible: true, children: boxes });
         }
 
-        children.push(Node::Separator);
+        let models = std::mem::take(&mut children);
         children.push(Node::heading(tr("Ebenen", "Layers")));
         let active = self.active.min(self.layers.len() - 1);
         children.push(Node::Radio {
@@ -1167,7 +1208,6 @@ impl PanelState {
         }
 
         children.push(Node::Separator);
-        children.push(Node::heading(tr("Textur", "Texture")));
         use crate::textures::Group;
         let group = if self.group.is_empty() { Group::of(&r.texture) } else { Group::from_id(&self.group) };
         children.push(Node::Select {
@@ -1292,8 +1332,7 @@ impl PanelState {
             submit: None,
         });
 
-        children.push(Node::Separator);
-        children.push(Node::heading(tr("Wohin", "Where")));
+        let texture = std::mem::take(&mut children);
         children.push(Node::Radio {
             id: "place".into(),
             options: choices(&Place::ALL, Place::id, Place::label),
@@ -1334,34 +1373,64 @@ impl PanelState {
             submit: None,
         });
 
-        children.push(Node::Separator);
-        children.push(Node::heading(tr("Datei", "File")));
-        children.push(Node::Form {
-            id: "file".into(),
-            rows: vec![
-                row(
-                    tr("Qualität", "Quality"),
-                    Node::Radio {
-                        id: "quality".into(),
-                        options: choices(&QualityChoice::ALL, QualityChoice::id, QualityChoice::label),
-                        selected: r.quality.id().into(),
-                    },
-                ),
-                row(
-                    tr("Format", "Format"),
-                    Node::Radio {
-                        id: "format".into(),
-                        options: vec![
-                            Choice { value: "3mf".into(), label: "3MF".into() },
-                            Choice { value: "stl".into(), label: "STL".into() },
-                        ],
-                        selected: r.format.extension().into(),
-                    },
-                ),
-            ],
-            submit: None,
-        });
-        children.push(Node::Label {
+        let place = std::mem::take(&mut children);
+
+        // The file: how fine, which format, and a print list for what is made.
+        let mut rows = vec![
+            row(
+                tr("Qualität", "Quality"),
+                Node::Radio {
+                    id: "quality".into(),
+                    options: choices(&QualityChoice::ALL, QualityChoice::id, QualityChoice::label),
+                    selected: r.quality.id().into(),
+                },
+            ),
+            row(
+                tr("Format", "Format"),
+                Node::Radio {
+                    id: "format".into(),
+                    options: vec![
+                        Choice { value: "3mf".into(), label: "3MF".into() },
+                        Choice { value: "stl".into(), label: "STL".into() },
+                    ],
+                    selected: r.format.extension().into(),
+                },
+            ),
+            row(
+                tr("Druckliste", "Print list"),
+                Node::Checkbox {
+                    id: "to_list".into(),
+                    label: tr("Neues Modell dazusetzen", "Add the new model").into(),
+                    checked: self.to_list,
+                    enabled: true,
+                },
+            ),
+        ];
+        // Which list: asked only when one is wanted.
+        if self.to_list {
+            rows.push(row(
+                tr("Name der Liste", "Name of the list"),
+                Node::TextInput {
+                    id: "list_name".into(),
+                    value: self.list_name.clone(),
+                    hint: Some(LIST.into()),
+                    multiline: false,
+                    enabled: true,
+                },
+            ));
+        }
+        let mut file = vec![Node::Form { id: "file".into(), rows, submit: None }];
+        if self.to_list {
+            file.push(Node::Label {
+                text: tr(
+                    "Gibt es eine Druckliste mit diesem Namen, kommt das Modell dazu; sonst legt Meshgrove sie an.",
+                    "A print list of that name gets the model added; if there is none, Meshgrove makes it.",
+                )
+                .into(),
+                style: TextStyle::Small,
+            });
+        }
+        file.push(Node::Label {
             text: tf!(
                 "Düse {} mm (vom Drucker in Meshgrove)",
                 "Nozzle {} mm (from the printer in Meshgrove)",
@@ -1370,23 +1439,39 @@ impl PanelState {
             style: TextStyle::Weak,
         });
 
+        // The button stands on top, above the tabs, and does not scroll away.
         let count = self.sources.len();
         let label = match count {
             0 | 1 => tr("Textur auftragen", "Apply texture").to_owned(),
             n => tf!("Auf alle {} Modelle auftragen", "Apply to all {} models", n),
         };
-        // The column's last line: the button, which turns into "cancel" while files are made.
-        if self.batch.current.is_some() {
-            children.push(Node::Button {
-                id: "cancel".into(),
-                label: tr("Abbrechen", "Cancel").into(),
-                primary: false,
-                enabled: true,
-            });
+        let button = if self.batch.current.is_some() {
+            // It turns into "cancel" while files are made.
+            Node::Button { id: "cancel".into(), label: tr("Abbrechen", "Cancel").into(), primary: false, enabled: true }
         } else {
-            children.push(Node::Button { id: "apply".into(), label, primary: true, enabled: count > 0 });
-        }
-        Node::Scroll { max_height: None, children }
+            Node::Button { id: "apply".into(), label, primary: true, enabled: count > 0 }
+        };
+        let tab = |label: String, children: Vec<Node>| Tab {
+            label,
+            children: vec![Node::Scroll { max_height: None, children }],
+        };
+        let models_label = match count {
+            0 | 1 => tr("Modell", "Model").to_owned(),
+            n => tf!("Modelle ({})", "Models ({})", n),
+        };
+        Node::column(vec![
+            Node::row(vec![button]),
+            Node::Tabs {
+                id: "tabs".into(),
+                selected: self.tab.min(3),
+                tabs: vec![
+                    tab(tr("Textur", "Texture").into(), texture),
+                    tab(tr("Wohin", "Where").into(), place),
+                    tab(models_label, models),
+                    tab(tr("Datei", "File").into(), file),
+                ],
+            },
+        ])
     }
 }
 

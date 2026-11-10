@@ -2,7 +2,7 @@
 //! texture on it, and making the textured file (in a background job; it waits in the review).
 
 use meshgrove_plugin_api::guest::{self, Image, PluginError, ToolOutput, library};
-use meshgrove_plugin_api::{Bundle, BundleJob, ToolDef};
+use meshgrove_plugin_api::{Bundle, BundleItem, BundleJob, BundleList, ListKind, ToolDef};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use texgrove_core::bvh::Bvh;
@@ -42,6 +42,8 @@ struct Args {
     format: Option<String>,
     /// For a project (3MF) with several objects: the names of those to texture.
     parts: Vec<String>,
+    /// A print list to put the new file onto as well.
+    print_list: Option<String>,
 }
 
 fn invalid(what: impl Into<String>) -> PluginError {
@@ -173,6 +175,7 @@ fn recipe_schema(with_file: bool) -> Value {
     if with_file {
         properties["quality"] = json!({"type": "string", "enum": ["draft", "normal", "fine"], "description": "How fine the mesh is made. Default normal."});
         properties["format"] = json!({"type": "string", "enum": ["3mf", "stl"], "description": "Default 3mf. A 3MF project keeps its other objects, plates and settings."});
+        properties["print_list"] = json!({"type": "string", "description": "Also put the new file onto the print list of this name; a list that does not exist yet is made. Only when the user asks for it."});
     }
     json!({"type": "object", "properties": properties, "required": ["id"]})
 }
@@ -326,6 +329,9 @@ fn preview(args: &Args) -> Result<ToolOutput, PluginError> {
 pub struct ApplyJob {
     pub export: ExportJob,
     pub title: String,
+    /// The print list the file goes onto as well, if any.
+    #[serde(default)]
+    pub print_list: Option<String>,
 }
 
 fn apply(args: &Args) -> Result<ToolOutput, PluginError> {
@@ -338,6 +344,7 @@ fn apply(args: &Args) -> Result<ToolOutput, PluginError> {
     let job = ApplyJob {
         export: ExportJob { source: source.clone(), layers, nozzle: nozzle(), file: file.clone() },
         title: title.clone(),
+        print_list: args.print_list.as_deref().map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned),
     };
     let bundle = Bundle {
         title,
@@ -358,10 +365,21 @@ fn apply(args: &Args) -> Result<ToolOutput, PluginError> {
 pub fn run_apply(job: &ApplyJob) -> Result<Value, PluginError> {
     let made = work::export(&job.export)?;
     let source = &job.export.source;
+    let file = made.bundle_file(source, work::note(source, &job.export.layers, made.triangles));
+    let lists = job
+        .print_list
+        .iter()
+        .map(|name| BundleList {
+            name: name.clone(),
+            kind: ListKind::Print,
+            items: vec![BundleItem { path: file.path.clone(), quantity: 1 }],
+        })
+        .collect();
     let bundle = Bundle {
         title: job.title.clone(),
-        files: vec![made.bundle_file(source, work::note(source, &job.export.layers, made.triangles))],
+        files: vec![file],
         tags: vec![tr("Texturiert", "Textured").into()],
+        lists,
         ..Bundle::default()
     };
     Ok(json!({"bundle": bundle, "file": made.file, "triangles": made.triangles, "warnings": made.warnings}))

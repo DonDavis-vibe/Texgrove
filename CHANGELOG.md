@@ -4,6 +4,14 @@ Texgrove is a Meshgrove plugin: a release is one `texgrove.wasm`, installed unde
 Plugins*. It needs Meshgrove 0.9.1 or newer. The command line and the kernel carry the same
 version number.
 
+## 1.1.0 – 2026-11-10
+
+- **Tabs** in the panel, as in Bingrove: *Texture*, *Where*, *Model* and *File*. The button
+  "Apply texture" stands above them and no longer at the very end of a long column.
+- **Onto a print list**: tick "Add the new model" in the *File* tab and what is made also goes
+  onto a print list, "Texgrove" or one you name; a list that does not exist yet is made. An AI
+  can ask for the same with `print_list`.
+
 ## 1.0.1 – 2026-11-10
 
 - A stamp on the side of a round part (a knob, a cup) took many times longer than on a flat

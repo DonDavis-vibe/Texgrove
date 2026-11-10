@@ -47,9 +47,10 @@ Ein oder mehrere Modelle in Meshgroves Galerie mit rechts anklicken und **Textur
 wählen, oder den gleichnamigen Knopf im Info-Bereich drücken. Das Panel zeigt eine grobe
 Vorschau; Textur wählen, Kachelgröße und Tiefe einstellen, sagen, wohin sie soll, und **Textur
 auftragen** drücken. Die neue Datei liegt neben dem Original, mit dem Tag „Texturiert“ und
-allen Einstellungen in der Notiz. Rückgängig geht über Meshgroves Verlauf.
+allen Einstellungen in der Notiz; im Reiter *Datei* lässt sie sich gleich auf eine Druckliste
+setzen. Rückgängig geht über Meshgroves Verlauf.
 
-![Texgroves Panel in Meshgrove: ein Drehknopf mit Geflecht nur auf der Außenseite, die Modelle, die Texturgalerie und die Einstellungen](assets/screenshot-panel.de.png)
+![Texgroves Panel in Meshgrove: ein Drehknopf mit Geflecht nur auf der Außenseite, der Knopf „Textur auftragen“ über den Reitern Textur, Wohin, Modelle und Datei, die Texturgalerie und ihre Einstellungen](assets/screenshot-panel.de.png)
 
 ## Mit einer KI
 

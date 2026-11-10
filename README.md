@@ -43,10 +43,10 @@ Texgrove needs Meshgrove **0.9.1 or newer**.
 Right-click one or several models in Meshgrove's gallery and choose **Apply texture …**, or
 press the button of that name in the Info pane. The panel shows a coarse preview; pick a
 texture, set tile size and depth, say where it goes, and press **Apply texture**. The new file
-lands beside the original, tagged "Textured", with every setting in its note. Undo is in
-Meshgrove's history.
+lands beside the original, tagged "Textured", with every setting in its note; the *File* tab
+can put it onto a print list as well. Undo is in Meshgrove's history.
 
-![Texgrove's panel in Meshgrove: a knob with a weave texture on its outside only, the models, the texture gallery and the settings](assets/screenshot-panel.png)
+![Texgrove's panel in Meshgrove: a knob with a weave texture on its outside only, the button "Apply texture" above the tabs Texture, Where, Models and File, the texture gallery and its settings](assets/screenshot-panel.png)
 
 ## With an AI
 
